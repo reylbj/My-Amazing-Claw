@@ -1,0 +1,3 @@
+release_tag=v2026.03.01.1740-ed7e493
+asset=xiaohongshu-mcp-darwin-arm64.tar.gz
+installed_at=2026-03-03T14:39:18Z

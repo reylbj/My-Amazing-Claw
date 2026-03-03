@@ -1,0 +1,14 @@
+{
+  "title": "周末咖啡地图",
+  "description": "这周测试了三家咖啡店，收藏这份清单，下次 citywalk 可以直接打卡。",
+  "image_urls": [
+    "https://example.com/cafe-1.jpg",
+    "https://example.com/cafe-2.jpg"
+  ],
+  "tags": [
+    "coffee",
+    "citywalk",
+    "weekend"
+  ],
+  "visibility": "公开可见"
+}

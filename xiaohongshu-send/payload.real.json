@@ -1,0 +1,14 @@
+{
+  "title": "MCP自动化发布实测",
+  "description": "今天完成了小红书 MCP 自动化链路验证：登录、状态检查、参数校验和发布调用都跑通了。",
+  "image_urls": [
+    "/tmp/xiaohongshu-mcp-src/assets/vscode_search_demo.png",
+    "/tmp/xiaohongshu-mcp-src/assets/cursor_mcp_check_login.png"
+  ],
+  "tags": [
+    "自动化",
+    "MCP",
+    "效率工具"
+  ],
+  "visibility": "公开可见"
+}
