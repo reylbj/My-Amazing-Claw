@@ -159,7 +159,11 @@ python3 scripts/xiaohongshu_send.py publish --dry-run --payload payload.json --b
 - 小红书登录已做持久化根治：统一 `COOKIES_PATH`，并把 `/tmp/cookies.json` 固定链接到工作区 cookies，避免会话漂移  
 - 小红书浏览器 profile 已固定到 `xiaohongshu-send/profile`（`rod dir`），重启后优先复用同一会话  
 - 公众号推送报 `40164 invalid ip` 时，先加微信后台 IP 白名单再重试  
-- 先做登录态/环境预检，再抓取与发布，可显著减少卡顿与失败重跑  
+- 先做登录态/环境预检，再抓取与发布，可显著减少卡顿与失败重跑
+- MCP服务在 `~/xhs_workspace`（无中文路径，避免崩溃）
+- Cookie从浏览器导入（长期有效，无需扫码）
+- 中文路径自动转换（发布时处理）
+- 默认"仅自己可见"（手动审核后公开） 
 
 ### 小红书快速自检（30秒）
 ```bash
