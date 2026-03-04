@@ -1,0 +1,17 @@
+{
+  "title": "本地AI来了，宠物数据不再裸奔",
+  "description": "本地AI不是炫技，而是把宠物数据真正留在用户设备端。\n\n这次实测后我最看重三点：\n1) 隐私：原始音频与健康数据可不出端\n2) 体验：本地推理更快，弱网也可用\n3) 成本：云端推理压力显著下降\n\n如果你在做 AI × 宠物产品，建议从一个可本地化的小功能先做 MVP：例如叫声识别或异常行为提醒。",
+  "image_urls": [
+    "/tmp/xhs_cards_local_ai/card_1.png",
+    "/tmp/xhs_cards_local_ai/card_2.png",
+    "/tmp/xhs_cards_local_ai/card_3.png",
+    "/tmp/xhs_cards_local_ai/card_4.png",
+    "/tmp/xhs_cards_local_ai/card_5.png",
+    "/tmp/xhs_cards_local_ai/card_6.png",
+    "/tmp/xhs_cards_local_ai/card_7.png",
+    "/tmp/xhs_cards_local_ai/card_8.png",
+    "/tmp/xhs_cards_local_ai/card_9.png"
+  ],
+  "tags": ["本地AI", "宠物科技", "隐私保护", "AI产品", "智能硬件", "创业复盘"],
+  "visibility": "仅自己可见"
+}

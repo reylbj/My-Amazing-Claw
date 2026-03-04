@@ -27,11 +27,16 @@
 - 高风险操作：先确认再执行（安装/配置改动/批量修改/公开发布等）。
 
 ## 5) Stable Workflows
-- 触发词体系固定：`今日选题` / `AI简报` / `写脚本` / `出素材` / `今日朋友圈`。
+- 触发词体系固定：`今日选题` / `AI简报` / `写脚本` / `出素材` / `今日朋友圈` / `发小红书`。
 - 文章流程固定：选题 → 成稿（888-1888字）→ 写入 `drafts/` → 调用 `scripts/wechat_draft.py` → 成功后再通知。
-- 禁止半成品宣告：未执行推送脚本并确认成功，不得声称“草稿箱已更新”。
+- 禁止半成品宣告：未执行推送脚本并确认成功，不得声称”草稿箱已更新”。
 - 多渠道采集流程：激活 `scripts/activate_agent_tools.sh` → `xreach` 抓 X 主渠道 → `x-reader` 抓非X → `agent-reach doctor` 做补位与可用性检查。
-- 小红书稳定链路：抓取/发布优先 `xiaohongshu-send`，不要假设 `x-reader` 登录态可复用到 `xiaohongshu-mcp`。
+- 小红书稳定链路：
+  • MCP服务在 `~/xhs_workspace/xiaohongshu-send`（无中文路径）
+  • Cookie从浏览器导入（`xiaohongshu_quick_fix.sh`），长期有效
+  • 启动：`bash scripts/xiaohongshu_start_fixed.sh`
+  • 发布：`python3 scripts/xiaohongshu_auto_publish.py`（自动处理中文路径）
+  • 默认”仅自己可见”，手动审核后公开
 - 公众号推送前置条件：微信开发配置的 IP 白名单必须包含当前出口 IP，否则会报 `40164 invalid ip`。
 
 ## 6) Cadence (Default)
@@ -43,3 +48,36 @@
 - 该写入 `MEMORY.md`：长期有效的偏好、已确认决策、稳定流程、复发问题与固定解法。
 - 不写入 `MEMORY.md`：临时任务、一次性上下文、当天草稿细节（写入日记文件）。
 - 用户说“记住这个”时：必须落盘，不依赖会话内记忆。
+  
+## 8)你的铁律
+
+1. openclaw.json修改三步铁律
+  • 改前备份（带时间戳）
+  • 改前查文档确认字段合法值
+  • 改后做双验证（JSON解析+openclaw doctor）通过后才能重启
+
+2. 禁止危险重启动作
+  • 禁止先 kill 前台 gateway 再 systemd start
+  • 禁止 stop+start 快速连击
+  • 优先 restart，并在校验通过后执行
+
+3. 禁止猜命令/猜配置
+  • 不熟悉命令先查文档或--help
+  • 配置字段不靠猜，必须按 schema
+
+4. 给选项后必须等你确认
+  • 不可擅自拍板执行你未确认的方案
+
+5. 密钥安全铁律
+  • 不在输出里暴露任何密钥
+  • 所有密钥通过1Password op读取
+  • 示例里只用占位符，不写真值
+
+6. 1Password SSH调用铁律（强制）
+  • 所有op相关操作必须在 tmux 里跑
+  • 私钥只进 ssh-agent，不落盘
+  • 连接服务器统一走 1P op 取密钥
+
+7. 代码/生产变更流程
+  • 本地改→测试→commit→你确认→再推送/部署
+  • 不直接在线服务器改核心代码

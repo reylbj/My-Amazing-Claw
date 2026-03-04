@@ -24,6 +24,27 @@
 
 ## AI员工触发词
 
+### 小红书增长官（`小红书帖子` / `小红书笔记`）
+**快速启动**：
+```bash
+# 1. 启动MCP服务（首次需从浏览器导入Cookie）
+bash scripts/xiaohongshu_start_fixed.sh
+
+# 2. 渲染内容
+python3 小红书笔记技能包/scripts/render_xhs.py content.md --output-dir /tmp/xhs --theme playful-geometric --mode separator
+
+# 3. 发布（自动处理中文路径）
+python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --base-url http://127.0.0.1:18060
+```
+
+**核心机制**：
+- MCP服务运行在 `~/xhs_workspace/xiaohongshu-send`（无中文路径，避免崩溃）
+- Cookie从浏览器导入（绕过扫码登录，长期有效）
+- 中文路径自动转换为 `/tmp/xhs_safe_*`（发布时自动处理）
+- 默认"仅自己可见"，手动审核后公开
+
+**已验证**：✅ 渲染 ✅ 登录 ✅ 发布（7张图片上传成功）
+
 ### 1. 选题官（`今日选题` / `选题` / `公众号选题`）
 **步骤**：
 1. 读取今日AI资讯：`验证输出/ai_briefing_YYYY-MM-DD.txt` 或 `ai_news_filtered_YYYY-MM-DD.json`
@@ -85,13 +106,19 @@
 
 **禁忌**：❌ 堆砌黑话 ❌ 观点模糊 ❌ 案例陈旧 ❌ AI式"正确废话" ❌ 结论不清晰
 
-### 4. 短视频编导（`写脚本 [主题]`）
+## 水产市场调用约定（手动点名才能操作）
+1. 默认模式：手动点名调用，不启用自动触发。
+2. 已安装资产：`self-evolution`、`Multi Source Tech News Digest`、`Auto-Redbook-Skills`。
+3. 使用顺序：先按 `Multi Source Tech News Digest` 产出摘要，再按 `Auto-Redbook-Skills` 产出内容。
+4. `self-evolution` 仅用于复盘与优化建议；涉及自动安装、自动发布、自动定时任务时必须先确认。
+
+### 4. 短视频编导（`写脚本 [主题]`）（手动点名才能操作）
 输出60-90秒脚本：标题 → 前3秒钩子 → 分镜（时间+景别+动作+口播）→ 结尾CTA
 
-### 5. AI短投研发（`出素材 [产品]`）
+### 5. AI短投研发（`出素材 [产品]`）（手动点名才能操作）
 输出5条差异化文案：序号 | 角度 | 标题(≤20字) | 正文(≤120字) | CTA(≤15字) | 目标人群
 
-### 6. 朋友圈运营（`今日朋友圈`）
+### 6. 朋友圈运营（`今日朋友圈`）（手动点名才能操作）
 输出3-5条文案：[类型] 正文(≤100字) | 配图建议 | 发布时间
 
 ---
@@ -120,10 +147,6 @@
 - 渠道补全：`agent-reach`（某抖、Reddit、GitHub、环境体检）
 - 登录策略：优先 Cookie 登录，不走扫码；Cookie 导入与更新需用户确认
 
-### 抓取与发布预检（2026-03-03）
-- 小红书会话隔离：`x-reader` 与 `xiaohongshu-send` 登录态互不共享，抓取/发布统一走 `xiaohongshu-send` 链路更稳
-- 微信推送前必须检查白名单：若返回 `errcode 40164`，先在公众号后台添加当前出口 IP 再重试
-- 执行顺序：先 `check-login` / `doctor`，再抓取，再发布，避免长时间卡在无效会话
 
 ---
-_根据实际使用调整 | 更新：2026-03-03_
+_根据实际使用调整 | 更新：2026-03-04_

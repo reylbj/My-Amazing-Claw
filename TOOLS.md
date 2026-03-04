@@ -34,6 +34,13 @@
 - **运行目录**: `xiaohongshu-send/`（`bin/`、`data/cookies.json`、`logs/mcp.log`）
 - **详细文档**: `部署与部分app配置/小红书配置指南.md`
 
+## 水产市场（openclawmp）
+- **CLI入口**: `openclawmp`
+- **当前资产**: `experience/@u-3ce5e3aff0c34baaa034/self-evolution`、`experience/@u-a25e114956065150/Multi Source Tech News Digest`、`skill/@u-8d4b3846fb3c3e0c/Auto-Redbook-Skills`
+- **调用策略**: 手动点名调用为主，`experience` 提供策略，`skill` 用于产出执行
+- **常用命令**: `openclawmp list`
+- **空格名称命令示例**: `openclawmp info "experience/@u-a25e114956065150/Multi Source Tech News Digest"`
+
 ## 跨平台信息抓取
 
 ### x-reader（主抓取）
@@ -94,22 +101,6 @@ agent-reach doctor
   - 服务不可用
 ```
 
-## 工作目录结构
-
-```
-~/openclaw-workspace/
-  ├── OpenClaw核心养虾文档手册/    # 核心文档（本手册）
-  ├── memory/                      # 每日记忆文件
-  ├── drafts/                      # 文章草稿暂存
-  ├── .venv-agent-tools/           # Python 3.11 信息抓取环境
-  ├── xiaohongshu-send/            # 小红书发布目录（bin/data/logs/run）
-  ├── scripts/
-  │   ├── wechat_draft.py          # 微信草稿箱推送脚本
-  │   ├── xiaohongshu_send_setup.sh
-  │   ├── xiaohongshu_send.py
-  │   └── activate_agent_tools.sh
-  └── logs/                        # 操作日志
-```
 
 ## 内容审核配置
 

@@ -1,66 +1,18 @@
-# 快速入门指南 🚀
+# OpenClaw 快速入门 🚀
 
-## 📚 文档导航
+## 核心文档（每次执行前必读）
+- [SKILLS.md](SKILLS.md) - 技能树与软件使用细则
+- [HEARTBEAT.md](HEARTBEAT.md) - 安全控制与权限底线
+- [AGENTS.md](AGENTS.md) - 智能体运行标准
+- [IDENTITY.md](IDENTITY.md) - 员工档案与职责
+- [TOOLS.md](TOOLS.md) - 工具权限汇总
+- [MEMORY.md](MEMORY.md) - 长期记忆学习
+- [SOUL.md](SOUL.md) - 灵魂底色
 
-本文件夹包含OpenClaw的快速入门文档，帮助你在最短时间内上手使用。
-
----
-
-## 📖 文档列表
-
-### 1. [START_HERE.md](START_HERE.md) - 3分钟快速开始
-**适合人群**：完全新手，第一次使用OpenClaw
-
-**内容概览**：
-- 最简安装步骤
-- 基础配置
-- 第一次对话
-- 常见问题
-
-**阅读时间**：3分钟
-
----
-
-### 2. [INDEX.md](INDEX.md) - 5分钟项目概览
-**适合人群**：想快速了解OpenClaw全貌
-
-**内容概览**：
-- 项目介绍
-- 核心功能
-- 文档索引
-- 快速链接
-
-**阅读时间**：5分钟
-
----
-
-### 3. [NAVIGATION.md](NAVIGATION.md) - 项目导航
-**适合人群**：需要快速找到特定文档
-
-**内容概览**：
-- 按需求分类的文档导航
-- 我是新手，从哪里开始？
-- 我想深入学习
-- 我需要快速查询
-- 我想看代码示例
-- 我想配置系统
-- 我想使用工具
-
-**使用场景**：当你不知道该看哪个文档时
-
----
-
-### 4. [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - 快速参考卡
-**适合人群**：已经熟悉OpenClaw，需要快速查询
-
-**内容概览**：
-- 常用命令速查
-- 配额一览表
-- 安全等级速查
-- 故障排查清单
-- 快捷键和技巧
-
-**使用场景**：日常使用时的速查手册
+## 快速开始（3分钟）
+1. 查看技能列表：`openclaw skills check`
+2. 启动服务：`openclaw gateway start`
+3. 测试对话：发送消息到配置的频道
 
 ---
 
@@ -98,26 +50,52 @@ openclaw channels add --channel telegram --token "YOUR_TOKEN"
 openclaw configure  # 选择 channels -> WhatsApp
 ```
 
+### 水产市场（手动点名调用）
+```bash
+# 查看已安装资产
+openclawmp list
+
+# 查看具体资产（名称含空格时必须加引号）
+openclawmp info "experience/@u-a25e114956065150/Multi Source Tech News Digest"
+
+# 直接让 agent 按已安装资产产出内容
+openclaw agent --message "按 Multi Source Tech News Digest + Auto-Redbook-Skills 产出过去24小时科技摘要、3个选题、1篇成稿"
+```
+
+## 小红书增长官技能（已验证）
+```bash
+# 1. 内容创作 → 生成Markdown文件
+# 2. 渲染卡片
+python3 小红书笔记技能包/scripts/render_xhs.py content.md -t playful-geometric -m separator -o output/
+
+# 3. 发布验证
+bash scripts/xiaohongshu_send_setup.sh start --port 18060 --headless true
+python3 scripts/xiaohongshu_send.py check-login --base-url http://127.0.0.1:18060
+python3 scripts/xiaohongshu_send.py validate --payload payload.json
+python3 scripts/xiaohongshu_send.py publish --dry-run --payload payload.json --base-url http://127.0.0.1:18060
+```
+
 ---
 
 ## 🔗 相关文档链接（重要！）
 
-### 核心文档（每次执行前必须核心阅读的文档）
+### 核心文档（你每次执行项目前必须核心阅读的文档）
 - [核心养虾文件Token优化指南](openclaw-workspace/核心养虾文件Token优化指南.md) - 核心token优化指南
 - [API_STRATEGY.md](openclaw-workspace/部署与部分app配置/API_STRATEGY.md) - API策略与效能优化
 - [SKILLS.md](openclaw-workspace/SKILLS.md)- 你的各个技能树，解放双手的效率利器，对应各个软件的使用细则提示，请详细遵循
 - [HEARTBEAT.md](openclaw-workspace/HEARTBEAT.md)- 你的风险与安全控制文档，代表权限底线，必须仔细遵循不犯错
 - [AGENTS.md](openclaw-workspace/AGENTS.md)- 你的智能体运行合约与操作标准程序
 - [IDENTITY.md](openclaw-workspace/IDENTITY.md)- 你的员工档案，请记住你的职责，高效完成任务不犯错
-- [TOOLS.md](openclaw-workspace/TOOLS.md)- 你有权限各个工具的汇总
+- [TOOLS.md](openclaw-workspace/TOOLS.md)- 你有的权限各个工具的汇总
 - [MEMORY.md](openclaw-workspace/MEMORY.md)- 你的长期记忆学习文件，每天不断进步，学无止境
 - [SOUL.md](openclaw-workspace/SOUL.md)- 你的人类形态灵魂底色，不忘初心，方得始终
 
 
-### 详细文档
+### 详细文档（你每次执行项目前必须核心阅读的文档）
 - [README.md](../README.md) - 完整使用指南
 - [项目完成总结](../项目完成总结/) - 项目总结和结构以及目前完成情况与流程
 - [部署与部分app配置](../部署与部分app配置/) - 工具配置说明
+- [Token优化指南](openclaw-workspace/Token优化指南.md) - 核心文件的token优化，帮我省钱
 
 ---
 
@@ -135,7 +113,7 @@ openclaw configure  # 选择 channels -> WhatsApp
 
 ---
 
-## 💡 使用技巧
+## 💡 新人使用技巧
 
 ### 技巧1：善用导航文档
 不知道看什么？先看 [NAVIGATION.md](NAVIGATION.md)
@@ -162,12 +140,10 @@ openclaw configure  # 选择 channels -> WhatsApp
 
 ---
 
-## 🔄 今日流程快照（2026-03-03）
-
 ### 目标
-- 三平台抓取验证：小红书 / 公众号 / X（各3条）
+- 三平台抓取验证：小红书 / 公众号 / X（各6条）
 - 结构化总结写入 Obsidian Vault
-- 生成并推送 1 条小红书草稿态、1 条公众号草稿
+- 生成并推送 3 条小红书草稿态、3 条公众号草稿
 
 ### 标准执行顺序（精简版）
 1. 预检：`agent-reach doctor` + 渠道登录态检查  

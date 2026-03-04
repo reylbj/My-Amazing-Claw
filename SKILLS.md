@@ -4,6 +4,52 @@
 
 ---
 
+## skill: 小红书增长运营官 ✅
+
+**触发**：`小红书帖子` / `小红书笔记`
+**模型**：api123/claude-sonnet-4-6
+
+### 快速流程（务必注意！）
+```bash
+# 1. 启动服务（首次需从浏览器导入Cookie）
+bash scripts/xiaohongshu_start_fixed.sh
+
+# 2. 渲染（推荐playful-geometric主题+separator模式）
+python3 小红书笔记技能包/scripts/render_xhs.py content.md --output-dir /tmp/xhs --theme playful-geometric --mode separator
+
+# 3. 发布（自动处理中文路径）
+python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --base-url http://127.0.0.1:18060
+```
+
+### Markdown格式
+```yaml
+---
+emoji: "🚀"
+title: "标题≤15字"
+subtitle: "副标题≤15字"
+---
+
+封面内容（≤366字）
+
+---
+
+卡片1内容
+
+---
+
+卡片2内容
+```
+
+### 核心机制（务必注意！）
+- MCP服务在 `~/xhs_workspace`（无中文路径，避免崩溃）
+- Cookie从浏览器导入（长期有效，无需扫码）
+- 中文路径自动转换（发布时处理）
+- 默认"仅自己可见"（手动审核后公开）
+
+**验证状态**：✅ 2026-03-04 | 渲染+登录+发布全链路通过
+
+---
+
 ## skill: 选题官
 
 **触发**：`今日选题` / `选题` / `公众号选题`
@@ -131,7 +177,7 @@ AI资讯类额外标注：*基于：[信息源]*
 
 ---
 
-## skill: 云端文件管理员
+## skill: 云端文件管理员与Petch项目的产品，运营，GTM，和战略决策者
 
 **触发**：`读取云端文件` / `下载petch项目` / `查看Google Drive` / `云端文件列表`
 **模型**：api123/claude-sonnet-4-6
@@ -187,7 +233,7 @@ AI资讯类额外标注：*基于：[信息源]*
 
 ---
 
-## skill: xiaohongshu-send
+## skill: xiaohongshu-send（手动点名调用，暂不自动化执行！）
 
 **触发**：`小红书发布` / `xhs发布` / `xiaohongshu-send`
 **模型**：api123/claude-sonnet-4-6
@@ -222,7 +268,13 @@ AI资讯类额外标注：*基于：[信息源]*
 
 ---
 
+## 水产市场资产（手动点名调用，暂不自动化执行！）
 
+1. 已安装资产：`experience/@u-3ce5e3aff0c34baaa034/self-evolution`、`experience/@u-a25e114956065150/Multi Source Tech News Digest`、`skill/@u-8d4b3846fb3c3e0c/Auto-Redbook-Skills`。
+2. 资产定位：`experience` 作为流程与策略参考；`skill` 作为内容产出执行模板。
+3. 调用方式：仅在用户明确点名时调用，不自动安装、不自动加 cron、不自动外部发布。
+4. 模板A（摘要+选题+成稿）：`按 Multi Source Tech News Digest + Auto-Redbook-Skills 产出过去24小时科技摘要、3个选题、1篇成稿。`
+5. 模板B（持续优化）：`按 self-evolution 复盘今天产出质量，给出可执行优化建议，不做自动安装。`
 
 
 ## skill: 短视频编导（记录用，暂不自动化执行！）
@@ -304,7 +356,6 @@ AI资讯类额外标注：*基于：[信息源]*
 ---
 
 
-
 ## 全局Token优化策略
 
 | 优化项 | 配置 | 效果 |
@@ -317,11 +368,9 @@ AI资讯类额外标注：*基于：[信息源]*
 
 ---
 
-## 模型降级触发条件
 
-```yaml
 # 极简双模型策略
-主力模型: api123/claude-sonnet-4-6 (承担95%任务)
+主力模型: api123/claude-sonnet-4-6 (承担85%任务)
 顶级模型: api123/claude-opus-4-6 (仅用于极其复杂或需要极高想象力的任务)
 
 降级链:

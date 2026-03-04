@@ -113,10 +113,10 @@ python3 examples/custom_rules.py
 ### API 密钥问题
 ```bash
 # 检查密钥
-echo $Claude_API_KEY
+echo $CLAUDE_API_KEY
 
 # 重新设置
-export Claude_API_KEY='your-key'
+export CLAUDE_API_KEY='your-key'
 ```
 
 ### 路由异常

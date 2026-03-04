@@ -84,7 +84,7 @@ openclaw-workspace/
 ./scripts/install.sh
 
 # 2. 设置API密钥
-export Claude_API_KEY='your-api-key'
+export CLAUDE_API_KEY='your-api-key'
 
 # 3. 查看状态
 ./scripts/openclaw.sh status

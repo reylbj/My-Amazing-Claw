@@ -42,8 +42,8 @@ openclaw sessions clean --older-than 7d
 ### 优化文件
 
 #### AGENTS.md
-**优化前**：212行，包含大量群聊规则、TTS配置、详细说明
-**优化后**：压缩到800 Token以内
+**优化前**：366行，包含大量群聊规则、TTS配置、详细说明
+**优化后**：压缩到888 Token以内
 
 **删除内容**：
 - 不使用的群聊规则
@@ -211,22 +211,22 @@ routing:
 #### 优化前
 - 系统提示词：13000 Token
 - 每次调用：15000-20000 Token
-- 每日配额消耗：Flash 150次（60%）
+- 每日配额消耗：Sonnet 150次
 
 #### 优化步骤
-1. 精简AGENTS.md和SOUL.md → 3000 Token
+1. 精简AGENTS.md和SKILLS.md和TOOLS.md → 3000 Token
 2. 启用QMD → 只传递相关记忆（200 Token）
 3. Heartbeat从10分钟改到30分钟 → 减少66%调用
-4. 创建邮件分类专用Agent（Flash-Lite）
+4. 创建邮件分类专用Agent（Sonnet）
 
 #### 优化后
 - 系统提示词：3000 Token
 - 每次调用：5000-8000 Token（减少60%）
-- 每日配额消耗：Flash 50次（20%），Flash-Lite 60次（6%）
+- 每日配额消耗：Sonnet 66次
 
 #### 效果
-- Token消耗降低：70%
-- 配额使用降低：67%
+- Token消耗降低：68%
+- 配额使用降低：66%
 - 响应速度提升：3倍
 - 成本节省：显著
 
