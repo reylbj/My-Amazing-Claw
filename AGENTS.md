@@ -8,6 +8,7 @@
 **运行时**: Node 22 LTS (不用Node 25)
 **首次/漂移**: `npm install -g node@22 && openclaw gateway install --force`
 **日常**: `openclaw gateway restart && openclaw gateway status`
+**推荐唯一入口**: `bash scripts/gateway_stable_start.sh`（自动固化Node22 + 重启 + 验活）
 **通过标准**: `RPC probe: ok` + Dashboard `http://127.0.0.1:18789/`
 **禁止**: 手工kill、stop+start连击
 **复位**: 先restart，再install --force + restart

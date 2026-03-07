@@ -261,6 +261,7 @@ OpenClaw 管理工具
 
 命令:
   init        初始化 OpenClaw 环境
+  gateway     稳定启动网关（固化 Node 22 + 重启 + 验活）
   status      显示当前配额状态
   report      生成每日使用报告
   test        测试智能路由器
@@ -274,6 +275,7 @@ OpenClaw 管理工具
 
 示例:
   $0 init          # 首次使用时初始化环境
+  $0 gateway       # 稳定启动网关并验活（推荐日常入口）
   $0 status        # 查看配额使用情况
   $0 report        # 生成今日使用报告
   $0 security      # 执行安全基线检查
@@ -316,6 +318,16 @@ run_security_baseline() {
     fi
 }
 
+run_gateway_stable_start() {
+    local script="$SCRIPT_DIR/gateway_stable_start.sh"
+    if [[ -x "$script" ]]; then
+        bash "$script"
+    else
+        print_warning "网关稳定启动脚本不存在或不可执行: $script"
+        return 1
+    fi
+}
+
 # 初始化
 init_openclaw() {
     print_banner
@@ -346,6 +358,9 @@ main() {
             ;;
         status)
             show_quota_status
+            ;;
+        gateway)
+            run_gateway_stable_start
             ;;
         report)
             generate_report

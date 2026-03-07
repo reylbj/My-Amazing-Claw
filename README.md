@@ -13,7 +13,8 @@
 1. 查看技能列表：`openclaw skills check`
 2. 启动服务（稳定版）：
    - 一次性固化：`npm install -g node@22 && openclaw gateway install --force`
-   - 日常启动：`openclaw gateway restart && openclaw gateway status`
+   - 日常启动（推荐唯一入口）：`bash scripts/gateway_stable_start.sh`
+   - 或兼容方式：`openclaw gateway restart && openclaw gateway status`
 3. 测试对话：发送消息到配置的频道
 
 ### 网关查看地址
@@ -21,11 +22,9 @@
 
 ### 聊天框 `-11` 快速恢复
 ```bash
-openclaw gateway restart
-openclaw gateway status
-# 若仍异常：
-openclaw gateway install --force
-openclaw gateway restart
+bash scripts/gateway_stable_start.sh
+# 若仍异常（手动兜底）：
+openclaw gateway install --force && openclaw gateway restart
 ```
 通过标准：`RPC probe: ok`
 

@@ -272,6 +272,36 @@ check_security_baseline() {
   fi
 }
 
+check_gateway_runtime() {
+  print_info "7) 网关稳定性检查"
+
+  if ! command -v openclaw >/dev/null 2>&1; then
+    print_warn "未安装 openclaw，跳过网关检查"
+    return
+  fi
+
+  local status_text=""
+  status_text="$(openclaw gateway status 2>&1 || true)"
+  if [[ -z "$status_text" ]]; then
+    print_warn "无法获取网关状态（输出为空）"
+    return
+  fi
+
+  if echo "$status_text" | rg -q "Command: ${HOME}/.npm-global/lib/node_modules/node/bin/node "; then
+    print_ok "网关服务已固定到 Node 22 路径"
+  elif echo "$status_text" | rg -q "Command: /opt/homebrew/opt/node/bin/node "; then
+    print_err "网关服务使用 Homebrew Node（可能漂移到 Node 25），建议执行: bash scripts/gateway_stable_start.sh"
+  else
+    print_warn "未识别网关 Node 路径，请人工确认 Command 行"
+  fi
+
+  if echo "$status_text" | rg -q "RPC probe: ok"; then
+    print_ok "RPC probe: ok"
+  else
+    print_warn "RPC probe 未通过（可能为瞬时状态），建议执行: bash scripts/gateway_stable_start.sh"
+  fi
+}
+
 main() {
   print_info "开始 OpenClaw 体检..."
   echo ""
@@ -319,6 +349,9 @@ main() {
 
   print_info "6) 安全基线检查"
   check_security_baseline
+  echo ""
+
+  check_gateway_runtime
   echo ""
 
   print_info "体检完成: ✅ $ok_count | ⚠️ $warn_count | ❌ $err_count"
