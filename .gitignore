@@ -14,3 +14,17 @@ HEARTBEAT.md
 
 # 凭证文件
 .credentials
+
+# 工作区状态和备份
+.openclaw/
+.legacy-backups/
+.token-optimization-backup/
+.venv-agent-tools-py39-*/
+
+# 小红书相关
+xiaohongshu-send/bin/
+xiaohongshu-send/data/
+xiaohongshu-send/run/
+
+# 验证输出
+验证*/
