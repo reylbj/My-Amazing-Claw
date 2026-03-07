@@ -109,8 +109,8 @@
 2. **禁止危险重启**: 禁止kill前台+systemd start、stop+start连击 → 优先restart
 3. **禁止猜命令/配置**: 不熟悉先查文档/--help、配置字段按schema
 4. **给选项必须等确认**: 不可擅自拍板
-5. **密钥安全**: 不暴露密钥、通过1Password op读取、示例用占位符
-6. **1Password SSH**: op操作必须在tmux、私钥只进ssh-agent不落盘、连接服务器走1P op
+5. **密钥安全**: 不暴露密钥、凭证存`.credentials`、示例用占位符
+6. **SSH私钥**: Secure Enclave硬件隔离、永不落盘
 7. **代码/生产变更**: 本地改→测试→commit→确认→推送/部署、不直接改线上核心代码
 
 ---
