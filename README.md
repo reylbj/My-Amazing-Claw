@@ -26,7 +26,8 @@ bash scripts/gateway_stable_start.sh
 # 若仍异常（手动兜底）：
 openclaw gateway install --force && openclaw gateway restart
 ```
-通过标准：`RPC probe: ok`
+通过标准：脚本输出 `可安全新建会话`（内部已做连续探针稳定性检查）
+注意：点刷新后先跑一次稳定脚本，再开 `new session`，避免在 Warm-up 窗口触发 `-11 read`
 
 ---
 

@@ -7,6 +7,9 @@ set -euo pipefail
 NODE22_BIN="${HOME}/.npm-global/lib/node_modules/node/bin/node"
 OPENCLAW_BIN="${HOME}/.npm-global/bin/openclaw"
 EXPECTED_NODE_PATTERN="${HOME}/.npm-global/lib/node_modules/node/bin/node"
+STABLE_REQUIRED_OK=3
+STABLE_MAX_ATTEMPTS=12
+STABLE_SLEEP_SEC=2
 
 info() { printf '[gateway-stable] %s\n' "$1"; }
 ok() { printf '[gateway-stable] OK: %s\n' "$1"; }
@@ -53,7 +56,7 @@ restart_gateway() {
 verify_status_or_fail() {
   local status_text="$1"
 
-  if echo "$status_text" | rg -q "Command: ${EXPECTED_NODE_PATTERN} "; then
+  if status_has_expected_node22 "$status_text"; then
     ok "网关服务已固定使用 Node 22"
   else
     err "网关服务未固定到 Node 22，当前 Command 如下："
@@ -61,13 +64,64 @@ verify_status_or_fail() {
     return 1
   fi
 
-  if echo "$status_text" | rg -q 'RPC probe: ok'; then
+  if status_probe_ok "$status_text"; then
     ok "RPC probe: ok"
   else
     err "RPC probe 未通过"
-    echo "$status_text" | rg -n 'RPC probe|gateway closed|Runtime:|Command:' -S || true
+    echo "$status_text" | rg -n 'RPC probe|Warm-up|gateway closed|Runtime:|Command:' -S || true
     return 1
   fi
+
+  if status_in_warmup "$status_text"; then
+    err "网关仍处于 Warm-up，暂不允许新会话"
+    return 1
+  fi
+}
+
+status_has_expected_node22() {
+  local status_text="$1"
+  echo "$status_text" | rg -q "Command: ${EXPECTED_NODE_PATTERN} "
+}
+
+status_probe_ok() {
+  local status_text="$1"
+  echo "$status_text" | rg -q 'RPC probe: ok'
+}
+
+status_in_warmup() {
+  local status_text="$1"
+  echo "$status_text" | rg -q 'Warm-up:'
+}
+
+probe_until_stable() {
+  local attempt=1
+  local consecutive_ok=0
+  local status_text
+
+  while (( attempt <= STABLE_MAX_ATTEMPTS )); do
+    status_text="$(gateway_status || true)"
+
+    if status_has_expected_node22 "$status_text" && \
+      status_probe_ok "$status_text" && \
+      ! status_in_warmup "$status_text"; then
+      consecutive_ok=$((consecutive_ok + 1))
+      info "稳定探针通过 ${consecutive_ok}/${STABLE_REQUIRED_OK}（第${attempt}次）"
+      if (( consecutive_ok >= STABLE_REQUIRED_OK )); then
+        printf '%s' "$status_text"
+        return 0
+      fi
+    else
+      consecutive_ok=0
+      warn "网关尚未稳定（第${attempt}次），继续等待"
+      echo "$status_text" | rg -n 'RPC probe|Warm-up|gateway closed|Runtime:|Command:' -S || true
+    fi
+
+    attempt=$((attempt + 1))
+    sleep "$STABLE_SLEEP_SEC"
+  done
+
+  err "网关在 ${STABLE_MAX_ATTEMPTS} 次探针后仍未稳定"
+  return 1
 }
 
 main() {
@@ -83,19 +137,18 @@ main() {
   fi
 
   restart_gateway
-  after_status="$(gateway_status || true)"
-
-  if verify_status_or_fail "$after_status"; then
-    ok "稳定启动完成"
+  if after_status="$(probe_until_stable)"; then
+    verify_status_or_fail "$after_status"
+    ok "稳定启动完成（可安全新建会话）"
     exit 0
   fi
 
-  warn "首次修复后仍异常，执行二次 install+restart"
+  warn "首次稳定化失败，执行二次 install+restart"
   install_force_node22
   restart_gateway
-  after_status="$(gateway_status || true)"
+  after_status="$(probe_until_stable)"
   verify_status_or_fail "$after_status"
-  ok "二次修复成功"
+  ok "二次修复成功（可安全新建会话）"
 }
 
 main "$@"
