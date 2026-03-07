@@ -1,21 +1,53 @@
 #!/usr/bin/env python3
 """
 微信公众号草稿箱接口
-从环境变量读取凭证，不硬编码任何密钥
+优先从 .credentials 文件读取凭证，其次从环境变量
 """
 
 import os
 import re
 import requests
+from pathlib import Path
 
 REQUEST_TIMEOUT_SECONDS = 20
 
 
+def _load_credentials_from_file():
+    """从 .credentials 文件加载凭证"""
+    cred_file = Path(__file__).parent.parent / ".credentials"
+    if not cred_file.exists():
+        return None, None
+    
+    appid = None
+    appsecret = None
+    with open(cred_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('#') or not line:
+                continue
+            if '=' in line:
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                if key == 'WECHAT_APPID':
+                    appid = value
+                elif key == 'WECHAT_APPSECRET':
+                    appsecret = value
+    return appid, appsecret
+
+
 def _get_wechat_credentials():
-    appid = os.environ.get("WECHAT_APPID")
-    appsecret = os.environ.get("WECHAT_APPSECRET")
+    # 优先从 .credentials 文件读取
+    appid, appsecret = _load_credentials_from_file()
+    
+    # 如果文件中没有，再从环境变量读取
+    if not appid:
+        appid = os.environ.get("WECHAT_APPID")
+    if not appsecret:
+        appsecret = os.environ.get("WECHAT_APPSECRET")
+    
     if not appid or not appsecret:
-        raise ValueError("请先设置环境变量 WECHAT_APPID 和 WECHAT_APPSECRET")
+        raise ValueError("请在 .credentials 文件或环境变量中设置 WECHAT_APPID 和 WECHAT_APPSECRET")
     return appid, appsecret
 
 
