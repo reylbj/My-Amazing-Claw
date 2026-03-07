@@ -52,6 +52,7 @@
 
 ## 7.5) 凭证(持久)
 - **微信公众号**: 凭证存储在 `.credentials` 文件中(调用`scripts/wechat_draft.py`时自动读取)
+- **小红书cookie**: 凭证存储在 `.credentials` 文件中(运行xiaohongshu-send时自动读取)
 
 ## 8) 你的铁律
 1. **openclaw.json修改**: 改前备份(带时间戳)→查文档确认字段→双验证(JSON解析+openclaw doctor)→重启
