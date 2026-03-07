@@ -2,6 +2,7 @@
 # xiaohongshu-send 环境准备与服务管理脚本
 
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -57,6 +58,32 @@ ensure_cmd() {
 
 ensure_dirs() {
   mkdir -p "${BIN_DIR}" "${DATA_DIR}" "${LOG_DIR}" "${RUN_DIR}" "${PROFILE_DIR}"
+  ensure_private_permissions
+}
+
+ensure_private_permissions() {
+  chmod 700 "${XHS_HOME}" "${DATA_DIR}" "${LOG_DIR}" "${RUN_DIR}" "${PROFILE_DIR}" 2>/dev/null || true
+  chmod 600 "${PID_FILE}" "${MCP_LOG}" "${COOKIE_BACKUP_FILE}" 2>/dev/null || true
+  local cpath
+  cpath="$(cookies_path)"
+  chmod 600 "${cpath}" 2>/dev/null || true
+}
+
+validate_port() {
+  local port="$1"
+  [[ "${port}" =~ ^[0-9]+$ ]] || fatal "端口必须是数字: ${port}"
+  (( port >= 1 && port <= 65535 )) || fatal "端口范围非法: ${port}"
+}
+
+validate_bool() {
+  local name="$1"
+  local value="$2"
+  case "${value}" in
+    true|false) ;;
+    *)
+      fatal "${name} 只能是 true 或 false，当前: ${value}"
+      ;;
+  esac
 }
 
 cookies_path() {
@@ -111,6 +138,7 @@ sync_cookie_store() {
   if [[ -s "${primary}" ]]; then
     cp -f "${primary}" "${COOKIE_BACKUP_FILE}"
   fi
+  ensure_private_permissions
 }
 
 print_cookie_debug() {
@@ -223,6 +251,7 @@ setup_release() {
     echo "asset=${asset}"
     echo "installed_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   } > "${XHS_HOME}/release.txt"
+  chmod 600 "${XHS_HOME}/release.txt" 2>/dev/null || true
 
   rm -rf "${tmpdir}"
 
@@ -346,6 +375,9 @@ start_server() {
     return 0
   fi
 
+  validate_port "${port}"
+  validate_bool "headless" "${headless}"
+
   local cmd=("${BIN_DIR}/xiaohongshu-mcp" "-port" ":${port}" "-headless=${headless}")
   if [[ -n "${browser_bin}" ]]; then
     cmd+=("-bin" "${browser_bin}")
@@ -366,6 +398,7 @@ start_server() {
     nohup "${cmd[@]}" > "${MCP_LOG}" 2>&1 &
     echo "$!" > "${PID_FILE}"
   )
+  ensure_private_permissions
 
   sleep 2
 
@@ -411,6 +444,8 @@ print_status() {
         ;;
     esac
   done
+
+  validate_port "${port}"
 
   log "XHS_HOME: ${XHS_HOME}"
   log "COOKIES_PATH: $(cookies_path)"

@@ -92,7 +92,8 @@ function parseMarkdownFile(filePath) {
     
     if (yamlMatch) {
         try {
-            metadata = yaml.load(yamlMatch[1]) || {};
+            // Restrict front-matter parsing to JSON-compatible schema.
+            metadata = yaml.load(yamlMatch[1], { schema: yaml.JSON_SCHEMA }) || {};
         } catch (e) {
             metadata = {};
         }

@@ -264,6 +264,7 @@ OpenClaw 管理工具
   status      显示当前配额状态
   report      生成每日使用报告
   test        测试智能路由器
+  security    执行安全基线检查（可选 fix）
   news        抓取今日AI资讯（用于选题）
   topics      显示今日选题简报
   wx          读取公众号文章并保存到 Obsidian
@@ -275,6 +276,8 @@ OpenClaw 管理工具
   $0 init          # 首次使用时初始化环境
   $0 status        # 查看配额使用情况
   $0 report        # 生成今日使用报告
+  $0 security      # 执行安全基线检查
+  $0 security fix  # 执行检查并收敛关键权限
   $0 wx "https://mp.weixin.qq.com/s?__biz=..." "/Users/a8/Documents/Obsidian Vault"
 
 环境变量:
@@ -301,6 +304,16 @@ full_check() {
     check_api_key || true
     echo ""
     print_info "环境检查完成"
+}
+
+run_security_baseline() {
+    local mode="${1:-check}"
+    if [[ -x "$SCRIPT_DIR/security_baseline.sh" ]]; then
+        bash "$SCRIPT_DIR/security_baseline.sh" "$mode"
+    else
+        print_warning "安全基线脚本不存在或不可执行: $SCRIPT_DIR/security_baseline.sh"
+        return 1
+    fi
 }
 
 # 初始化
@@ -339,6 +352,9 @@ main() {
             ;;
         test)
             test_router
+            ;;
+        security)
+            run_security_baseline "${2:-check}"
             ;;
         cleanup)
             cleanup

@@ -3,6 +3,25 @@
 ## 启动流程
 每次会话：读取 `SOUL.md` → `IDENTITY.md` → `USER.md` → `memory/` 近期记忆
 
+## 网关固定启动SOP（必须）
+- 目标：避免聊天框报 `Error: Unknown system error -11: ... read`。
+- 固定运行时：`Node 22 LTS`（不要回退到 Node 25）。
+- 首次或环境漂移时：
+```bash
+npm install -g node@22
+openclaw gateway install --force
+```
+- 日常启动（只用这组）：
+```bash
+openclaw gateway restart
+openclaw gateway status
+```
+- 通过标准：
+  - `RPC probe: ok`
+  - `Dashboard: http://127.0.0.1:18789/`
+- 禁止动作：手工 `kill` 网关进程、`stop+start` 快速连击。
+- 复位顺序：先 `restart`，再 `install --force + restart`。
+
 ## 记忆管理
 - **日常记忆**：`memory/YYYY-MM-DD.md`
 - **长期记忆**：`MEMORY.md`（仅主会话加载）
@@ -25,25 +44,33 @@
 ## AI员工触发词
 
 ### 小红书增长官（`小红书帖子` / `小红书笔记`）
-**快速启动**：
+**完整流程**：
 ```bash
-# 1. 启动MCP服务（首次需从浏览器导入Cookie）
-bash scripts/xiaohongshu_start_fixed.sh
+# 1. 更新Cookie（每次发布前确保最新）
+# 浏览器登录xiaohongshu.com → F12 Console → copy(document.cookie)
+# 写入 ~/xhs_workspace/xiaohongshu-send/data/cookies.json 格式：{"cookies": "..."}
 
-# 2. 渲染内容
-python3 小红书笔记技能包/scripts/render_xhs.py content.md --output-dir /tmp/xhs --theme playful-geometric --mode separator
+# 2. 启动MCP服务（headless=false可见模式调试）
+pkill -9 -f xiaohongshu-mcp
+cd ~/xhs_workspace/xiaohongshu-send
+COOKIES_PATH=./data/cookies.json ./bin/xiaohongshu-mcp -port :18060 -headless=true -rod "dir=./profile" > logs/mcp.log 2>&1 &
 
-# 3. 发布（自动处理中文路径）
+# 3. 渲染内容（推荐5-7张图，避免上传超时）
+python3 小红书笔记技能包/scripts/render_xhs.py content.md --output-dir /tmp/xhs --theme playful-geometric --mode auto-split
+
+# 4. 创建payload.json（必须包含content字段）
+# {"title":"...","content":"...","desc":"...","images":[...],"topics":[...],"type":"normal","is_private":false}
+
+# 5. 发布
 python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --base-url http://127.0.0.1:18060
 ```
 
-**核心机制**：
-- MCP服务运行在 `~/xhs_workspace/xiaohongshu-send`（无中文路径，避免崩溃）
-- Cookie从浏览器导入（绕过扫码登录，长期有效）
-- 中文路径自动转换为 `/tmp/xhs_safe_*`（发布时自动处理）
-- 默认"仅自己可见"，手动审核后公开
-
-**已验证**：✅ 渲染 ✅ 登录 ✅ 发布（7张图片上传成功）
+**关键要点**：
+- Cookie必须是**主账号**的，否则发到错误账号
+- 图片数量≤7张（9张易超时导致上传失败）
+- payload必须有content字段（不能只有desc）
+- 发布后检查APP"创作中心"→"笔记管理"（可能在审核中）
+- 出现扫码=Cookie部分失效，重新导出即可
 
 ### 1. 选题官（`今日选题` / `选题` / `公众号选题`）
 **步骤**：
@@ -149,4 +176,4 @@ python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --ba
 
 
 ---
-_根据实际使用调整 | 更新：2026-03-04_
+_根据实际使用调整 | 更新：2026-03-07_

@@ -14,10 +14,11 @@ Usage:
   bash scripts/activate_agent_tools.sh --check
   bash scripts/activate_agent_tools.sh --doctor
   bash scripts/activate_agent_tools.sh --run "python --version && agent-reach doctor"
+  bash scripts/activate_agent_tools.sh --run -- python --version
 
 Notes:
   - Use `source ...` if you want to keep the venv activated in your current shell.
-  - Use `--run` if you only want to run one command in the venv.
+  - Use `--run -- <cmd> <args...>` to avoid shell parsing.
 EOF
 }
 
@@ -61,7 +62,15 @@ main() {
       shift
       [[ -n "${1:-}" ]] || { usage; exit 1; }
       activate_env
-      eval "$1"
+      if [[ "${1:-}" == "--" ]]; then
+        shift
+        [[ $# -gt 0 ]] || { usage; exit 1; }
+        "$@"
+      elif [[ $# -eq 1 ]]; then
+        bash -lc "$1"
+      else
+        "$@"
+      fi
       ;;
     -h|--help|help)
       usage

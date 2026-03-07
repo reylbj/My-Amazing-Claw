@@ -11,8 +11,46 @@
 
 ## 快速开始（3分钟）
 1. 查看技能列表：`openclaw skills check`
-2. 启动服务：`openclaw gateway start`
+2. 启动服务（稳定版）：
+   - 一次性固化：`npm install -g node@22 && openclaw gateway install --force`
+   - 日常启动：`openclaw gateway restart && openclaw gateway status`
 3. 测试对话：发送消息到配置的频道
+
+### 网关查看地址
+- Dashboard：`http://127.0.0.1:18789/`
+
+### 聊天框 `-11` 快速恢复
+```bash
+openclaw gateway restart
+openclaw gateway status
+# 若仍异常：
+openclaw gateway install --force
+openclaw gateway restart
+```
+通过标准：`RPC probe: ok`
+
+---
+
+## 🔐 安全加固（2026-03-07，基于 openclaw-security 落地）
+
+### 一键巡检
+```bash
+bash scripts/security_baseline.sh check
+# 或
+bash scripts/openclaw.sh security
+```
+
+### 权限收敛（建议首次执行一次）
+```bash
+bash scripts/security_baseline.sh fix
+```
+
+### 已落地的低侵入安全增强
+- 移除 `scripts/activate_agent_tools.sh` 中的 `eval` 直接执行路径（保留兼容 `--run`）。
+- `scripts/xiaohongshu_send_setup.sh` 增加 `umask 077`、关键目录/文件权限收敛、端口与布尔参数校验。
+- `小红书笔记技能包/scripts/render_xhs_v2.js` 将 YAML 解析收敛到 `JSON_SCHEMA`。
+- `scripts/wechat_draft.py` 不再输出 token 片段，避免凭证侧漏。
+- `scripts/doctor.sh` 新增安全基线检查步骤，统一纳入体检流程。
 
 ---
 
@@ -32,7 +70,8 @@ openclaw configure
 
 ### 启动服务
 ```bash
-openclaw gateway start
+openclaw gateway restart
+openclaw gateway status
 ```
 
 ### 查看状态
@@ -159,11 +198,11 @@ python3 scripts/xiaohongshu_send.py publish --dry-run --payload payload.json --b
 - 小红书登录已做持久化根治：统一 `COOKIES_PATH`，并把 `/tmp/cookies.json` 固定链接到工作区 cookies，避免会话漂移  
 - 小红书浏览器 profile 已固定到 `xiaohongshu-send/profile`（`rod dir`），重启后优先复用同一会话  
 - 公众号推送报 `40164 invalid ip` 时，先加微信后台 IP 白名单再重试  
-- 先做登录态/环境预检，再抓取与发布，可显著减少卡顿与失败重跑
+- 先做登录态/环境预检，再抓取与发布，可显著减少卡顿与失败重跑  
 - MCP服务在 `~/xhs_workspace`（无中文路径，避免崩溃）
 - Cookie从浏览器导入（长期有效，无需扫码）
 - 中文路径自动转换（发布时处理）
-- 默认"仅自己可见"（手动审核后公开） 
+- 默认"仅自己可见"（手动审核后公开）
 
 ### 小红书快速自检（30秒）
 ```bash

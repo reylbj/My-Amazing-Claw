@@ -50,8 +50,16 @@ def convert_md_to_html(md: str) -> str:
 
 def get_access_token():
     appid, appsecret = _get_wechat_credentials()
-    url = f"https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={appid}&secret={appsecret}"
-    resp = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS).json()
+    url = "https://api.weixin.qq.com/cgi-bin/token"
+    resp = requests.get(
+        url,
+        params={
+            "grant_type": "client_credential",
+            "appid": appid,
+            "secret": appsecret,
+        },
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    ).json()
     if "errcode" in resp:
         raise Exception(f"获取Token失败: {resp}")
     return resp["access_token"]
@@ -116,8 +124,8 @@ def push_draft(title: str, content: str, author: str = "", digest: str = "", thu
 def test_connection():
     """测试连接是否正常"""
     try:
-        token = get_access_token()
-        print(f"✅ 连接成功，Token前20位: {token[:20]}...")
+        _ = get_access_token()
+        print("✅ 连接成功，公众号凭证可用")
         return True
     except Exception as e:
         print(f"❌ 连接失败: {e}")

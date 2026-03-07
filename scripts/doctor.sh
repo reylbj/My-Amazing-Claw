@@ -159,6 +159,7 @@ check_workspace() {
   check_file "$WORKSPACE/scripts/wechat_article_to_obsidian.py"
   check_file "$WORKSPACE/scripts/wechat_draft.py"
   check_file "$WORKSPACE/scripts/whatsapp_bot.py"
+  check_file "$WORKSPACE/scripts/security_baseline.sh"
 }
 
 check_skills_library() {
@@ -252,6 +253,25 @@ check_obsidian_bridge() {
   done
 }
 
+check_security_baseline() {
+  local script="$WORKSPACE/scripts/security_baseline.sh"
+  if [[ ! -x "$script" ]]; then
+    print_warn "安全基线脚本不可执行: $script"
+    return
+  fi
+
+  if bash "$script" check; then
+    print_ok "安全基线检查通过（无 CRITICAL）"
+  else
+    local rc=$?
+    if [[ "$rc" -eq 2 ]]; then
+      print_err "安全基线检查发现 CRITICAL，请先修复后再执行高风险任务"
+    else
+      print_warn "安全基线检查执行异常（退出码: $rc）"
+    fi
+  fi
+}
+
 main() {
   print_info "开始 OpenClaw 体检..."
   echo ""
@@ -295,6 +315,10 @@ main() {
       print_warn "未自动发现 Vault，请手动传入 --vault"
     fi
   fi
+  echo ""
+
+  print_info "6) 安全基线检查"
+  check_security_baseline
   echo ""
 
   print_info "体检完成: ✅ $ok_count | ⚠️ $warn_count | ❌ $err_count"
