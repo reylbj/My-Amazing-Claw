@@ -87,5 +87,5 @@
 
 ## 13) 2026-03-08 聊天链路根治（-11）
 - 结论：`agents.defaults.workspace` 直接指向 Desktop 中文/emoji 路径时，gateway 路径曾复现 `Unknown system error -11, read`，并触发 fallback 导致变慢。
-- 固化：workspace 改为 `~/.openclaw/workspace-runtime`，该路径是指向真实项目目录的软链接（保持单份代码，不做镜像副本）。
-- 验收：连续 2+ 次 `openclaw agent --agent main --message "只回OK" --json` 均 `status=ok`，且新时间窗日志无 `Unknown system error -11`。
+- 固化：workspace 改为 `~/.openclaw/workspace-runtime-real`（真实本地目录，非 Desktop/非软链接）。
+- 验收：2026-03-08 18:48 UTC 后完成 1 次写入 + 3 轮读写回归（均 `OK`），且 `gateway.err.log` 最新 `-11` 仍停留在 `2026-03-08T18:05:15Z`（无新增）。

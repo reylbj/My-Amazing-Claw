@@ -4,7 +4,7 @@
 - guardian 运行目录已迁到 `~/.openclaw/guardian_runtime/scripts`，规避 macOS 对 Desktop 路径的 `Operation not permitted` 拦截。
 - 统一安装入口：`bash scripts/install_openclaw_guardian.sh`（会自动同步脚本到 runtime 目录并重建 LaunchAgent）。
 - 验证口径：`openclaw status` + `openclaw gateway status` + `launchctl list | rg ai.openclaw.guardian`。
-- 网关工作区固定为 `~/.openclaw/workspace-runtime`（软链接到项目目录），避免直接使用 Desktop 中文/emoji 路径触发偶发 `-11 read`。
+- 网关工作区固定为 `~/.openclaw/workspace-runtime-real`（真实本地目录，非 Desktop/非软链接），避免触发 `-11 read`。
 - 聊天回归口径：连续运行 `openclaw agent --agent main --message "只回OK" --json` 2-3 次，均应 `status=ok` 且不出现 fallback。
 
 ## 核心文档（每次执行前必读）
