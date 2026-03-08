@@ -36,9 +36,9 @@ bash scripts/install_openclaw_guardian.sh
 bash scripts/openclaw.sh guard install
 ```
 这会做 4 件事：
-- 给已安装的 OpenClaw runtime 打补丁，让 WhatsApp idle/watchdog 阈值可配置
+- 给已安装的 OpenClaw runtime 打补丁，把 WhatsApp/Web 待命超时默认提升到 24 小时（全天待命）
 - 把 `agents.defaults.heartbeat.every` 调整为 `0m`，避免周期性触发 `-11`
-- 将 WhatsApp 待机阈值调整到 6 小时，避免 30 分钟静默就误判断线
+- 将 `openclaw.json` 中不兼容字段自动清理（如 `web.messageTimeoutMs` / `web.watchdogCheckMs` / `gateway.channelHealth`）
 - 安装 `ai.openclaw.guardian` LaunchAgent，每分钟巡检一次，命中 `-11` / 异常关闭时自动自愈
 
 2026-03-08 补充：

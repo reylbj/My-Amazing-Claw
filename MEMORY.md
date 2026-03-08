@@ -65,7 +65,8 @@
 
 ## 9) 2026-03-08 网关复发固定解法
 - `-11 read` 复发后，runtime补丁必须覆盖 `daemon-cli` 与 `plugin-sdk`，不能只打 `channel-web/web`。
-- `openclaw_guardian.py configure` 必须“按schema支持写入”；不支持字段自动清理，避免 `Invalid config`。
+- `openclaw_guardian.py configure` 执行“兼容优先写入”：固定清理不兼容键 `web.messageTimeoutMs / web.watchdogCheckMs / gateway.channelHealth`，避免 `Invalid config`。
+- WhatsApp/Web 待命默认值统一为 24 小时（全天待命），心跳静默提示阈值同步为 24 小时。
 - 入站链路对 `Unknown system error -11, read` 做 1 次 250ms 重试；重启统一走 `bash scripts/gateway_stable_start.sh`。
 
 ## 10) 2026-03-08 群消息静默丢弃修复

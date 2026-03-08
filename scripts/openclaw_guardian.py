@@ -35,9 +35,8 @@ GATEWAY_STABLE_SCRIPT = ROOT_DIR / "scripts" / "gateway_stable_start.sh"
 
 EXPECTED_NODE_PATH = str(Path.home() / ".npm-global" / "lib" / "node_modules" / "node" / "bin" / "node")
 EXPECTED_WEB_HEARTBEAT_SECONDS = 300
-EXPECTED_WEB_MESSAGE_TIMEOUT_MS = 6 * 60 * 60 * 1000
-EXPECTED_WEB_WATCHDOG_CHECK_MS = 5 * 60 * 1000
-EXPECTED_CHANNEL_HEALTH_THRESHOLD_MS = 6 * 60 * 60 * 1000
+EXPECTED_WEB_MESSAGE_TIMEOUT_MS = 24 * 60 * 60 * 1000
+EXPECTED_WEB_STANDBY_WARN_MINUTES = 24 * 60
 EXPECTED_CHANNEL_HEALTH_CHECK_MINUTES = 5
 EXPECTED_AGENT_HEARTBEAT_EVERY = "0m"
 EXPECTED_GROUP_POLICY_FALLBACK = "open"
@@ -246,52 +245,25 @@ def patch_text(path: Path, text: str) -> tuple[str, bool]:
         updated, did_change = replace_when_present(
             updated,
             "const MESSAGE_TIMEOUT_MS = tuning.messageTimeoutMs ?? 1800 * 1e3;",
-            "const MESSAGE_TIMEOUT_MS = tuning.messageTimeoutMs ?? cfg.web?.messageTimeoutMs ?? 1800 * 1e3;",
+            "const MESSAGE_TIMEOUT_MS = tuning.messageTimeoutMs ?? 24 * 60 * 60 * 1e3;",
         )
         changed = changed or did_change
         updated, did_change = replace_when_present(
             updated,
-            "const WATCHDOG_CHECK_MS = tuning.watchdogCheckMs ?? 60 * 1e3;",
-            "const WATCHDOG_CHECK_MS = tuning.watchdogCheckMs ?? cfg.web?.watchdogCheckMs ?? 60 * 1e3;",
+            "...minutesSinceLastMessage !== null && minutesSinceLastMessage > 30 ? { minutesSinceLastMessage } : {}",
+            "...minutesSinceLastMessage !== null && minutesSinceLastMessage > 24 * 60 ? { minutesSinceLastMessage } : {}",
+        )
+        changed = changed or did_change
+        updated, did_change = replace_when_present(
+            updated,
+            'if (minutesSinceLastMessage && minutesSinceLastMessage > 30) heartbeatLogger.warn(logData, "⚠️ web gateway heartbeat - no messages in 30+ minutes");',
+            'if (minutesSinceLastMessage && minutesSinceLastMessage > 24 * 60) heartbeatLogger.warn(logData, "⚠️ web gateway heartbeat - no messages in 24h+ standby");',
         )
         changed = changed or did_change
         updated, did_change = replace_when_present(
             updated,
             "await processForRoute(msg, route, groupHistoryKey);",
             """try {\n\t\t\tawait processForRoute(msg, route, groupHistoryKey);\n\t\t} catch (err) {\n\t\t\tconst errText = String(err);\n\t\t\tconst transientReadFailure = errText.includes("Unknown system error -11") && errText.includes("read");\n\t\t\tif (!transientReadFailure) throw err;\n\t\t\tparams.replyLogger.warn({ error: errText, code: err?.code, errno: err?.errno, syscall: err?.syscall }, "transient inbound read failure; retrying once");\n\t\t\tawait sleepWithAbort(250);\n\t\t\tawait processForRoute(msg, route, groupHistoryKey);\n\t\t}""",
-        )
-        changed = changed or did_change
-
-    if (
-        path.name.startswith("auth-profiles-")
-        or path.name.startswith("model-selection-")
-        or path.name == "daemon-cli.js"
-        or (path.parent.name == "plugin-sdk" and path.name.startswith("config-"))
-    ):
-        updated, did_change = replace_when_present(
-            updated,
-            """\tweb: z.object({\n\t\tenabled: z.boolean().optional(),\n\t\theartbeatSeconds: z.number().int().positive().optional(),\n\t\treconnect: z.object({""",
-            """\tweb: z.object({\n\t\tenabled: z.boolean().optional(),\n\t\theartbeatSeconds: z.number().int().positive().optional(),\n\t\tmessageTimeoutMs: z.number().int().positive().optional(),\n\t\twatchdogCheckMs: z.number().int().positive().optional(),\n\t\treconnect: z.object({""",
-        )
-        changed = changed or did_change
-        updated, did_change = replace_when_present(
-            updated,
-            "\t\tchannelHealthCheckMinutes: z.number().int().min(0).optional(),",
-            """\t\tchannelHealthCheckMinutes: z.number().int().min(0).optional(),\n\t\tchannelHealth: z.object({\n\t\t\tmonitorStartupGraceMs: z.number().int().positive().optional(),\n\t\t\tchannelConnectGraceMs: z.number().int().positive().optional(),\n\t\t\tstaleEventThresholdMs: z.number().int().positive().optional()\n\t\t}).strict().optional(),""",
-        )
-        changed = changed or did_change
-
-    if path.name.startswith("gateway-cli-"):
-        updated, did_change = replace_when_present(
-            updated,
-            """\tlet channelHealthMonitor = healthCheckMinutes === 0 ? null : startChannelHealthMonitor({\n\t\tchannelManager,\n\t\tcheckIntervalMs: (healthCheckMinutes ?? 5) * 6e4\n\t});""",
-            """\tlet channelHealthMonitor = healthCheckMinutes === 0 ? null : startChannelHealthMonitor({\n\t\tchannelManager,\n\t\tcheckIntervalMs: (healthCheckMinutes ?? 5) * 6e4,\n\t\ttiming: cfgAtStart.gateway?.channelHealth\n\t});""",
-        )
-        changed = changed or did_change
-        updated, did_change = replace_when_present(
-            updated,
-            """\t\t\tcreateHealthMonitor: (checkIntervalMs) => startChannelHealthMonitor({\n\t\t\t\tchannelManager,\n\t\t\t\tcheckIntervalMs\n\t\t\t})""",
-            """\t\t\tcreateHealthMonitor: (checkIntervalMs) => startChannelHealthMonitor({\n\t\t\t\tchannelManager,\n\t\t\t\tcheckIntervalMs,\n\t\t\t\ttiming: loadConfig().gateway?.channelHealth\n\t\t\t})""",
         )
         changed = changed or did_change
 
@@ -343,56 +315,16 @@ def configure_openclaw(*, dry_run: bool) -> dict:
     if not isinstance(payload, dict):
         raise ValueError(f"invalid config: {OPENCLAW_CONFIG}")
 
-    schema_supports_web_ext = False
-    schema_supports_channel_health_obj = False
-    runtime_supports_web_ext = False
-    runtime_supports_channel_health_obj = False
-    if DIST_DIR.exists():
-        schema_candidates = [DIST_DIR / "daemon-cli.js"]
-        schema_candidates.extend(sorted(DIST_DIR.glob("auth-profiles-*.js")))
-        schema_candidates.extend(sorted(DIST_DIR.glob("model-selection-*.js")))
-        schema_candidates.extend(sorted(DIST_DIR.glob("plugin-sdk/config-*.js")))
-        runtime_candidates = sorted(DIST_DIR.glob("channel-web-*.js"))
-        runtime_candidates.extend(sorted(DIST_DIR.glob("web-*.js")))
-        runtime_candidates.extend(sorted(DIST_DIR.glob("plugin-sdk/channel-web-*.js")))
-        gateway_candidates = sorted(DIST_DIR.glob("gateway-cli-*.js"))
-        for candidate in schema_candidates:
-            if not candidate.exists():
-                continue
-            text = candidate.read_text(encoding="utf-8", errors="replace")
-            if "messageTimeoutMs: z.number().int().positive().optional()" in text and "watchdogCheckMs: z.number().int().positive().optional()" in text:
-                schema_supports_web_ext = True
-            if "channelHealth: z.object({" in text:
-                schema_supports_channel_health_obj = True
-        for candidate in runtime_candidates:
-            text = candidate.read_text(encoding="utf-8", errors="replace")
-            if "cfg.web?.messageTimeoutMs" in text and "cfg.web?.watchdogCheckMs" in text:
-                runtime_supports_web_ext = True
-                break
-        for candidate in gateway_candidates:
-            text = candidate.read_text(encoding="utf-8", errors="replace")
-            if "timing: cfgAtStart.gateway?.channelHealth" in text and "timing: loadConfig().gateway?.channelHealth" in text:
-                runtime_supports_channel_health_obj = True
-                break
-
     deep_set(payload, ["agents", "defaults", "heartbeat", "every"], EXPECTED_AGENT_HEARTBEAT_EVERY)
     deep_set(payload, ["web", "heartbeatSeconds"], EXPECTED_WEB_HEARTBEAT_SECONDS)
     deep_set(payload, ["gateway", "channelHealthCheckMinutes"], EXPECTED_CHANNEL_HEALTH_CHECK_MINUTES)
     normalize_group_policy(payload)
 
-    if schema_supports_web_ext and runtime_supports_web_ext:
-        deep_set(payload, ["web", "messageTimeoutMs"], EXPECTED_WEB_MESSAGE_TIMEOUT_MS)
-        deep_set(payload, ["web", "watchdogCheckMs"], EXPECTED_WEB_WATCHDOG_CHECK_MS)
-    else:
-        deep_delete(payload, ["web", "messageTimeoutMs"])
-        deep_delete(payload, ["web", "watchdogCheckMs"])
-
-    if schema_supports_channel_health_obj and runtime_supports_channel_health_obj:
-        deep_set(payload, ["gateway", "channelHealth", "monitorStartupGraceMs"], 60_000)
-        deep_set(payload, ["gateway", "channelHealth", "channelConnectGraceMs"], 120_000)
-        deep_set(payload, ["gateway", "channelHealth", "staleEventThresholdMs"], EXPECTED_CHANNEL_HEALTH_THRESHOLD_MS)
-    else:
-        deep_delete(payload, ["gateway", "channelHealth"])
+    # Keep config compatible across OpenClaw releases: never persist these
+    # optional tuning keys because unsupported versions reject them as invalid.
+    deep_delete(payload, ["web", "messageTimeoutMs"])
+    deep_delete(payload, ["web", "watchdogCheckMs"])
+    deep_delete(payload, ["gateway", "channelHealth"])
 
     if not dry_run:
         backup_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -671,15 +603,16 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
 
 
 def self_test() -> int:
-    sample_web = """const MESSAGE_TIMEOUT_MS = tuning.messageTimeoutMs ?? 1800 * 1e3;\nconst WATCHDOG_CHECK_MS = tuning.watchdogCheckMs ?? 60 * 1e3;\n"""
+    sample_web = """const MESSAGE_TIMEOUT_MS = tuning.messageTimeoutMs ?? 1800 * 1e3;
+...minutesSinceLastMessage !== null && minutesSinceLastMessage > 30 ? { minutesSinceLastMessage } : {}
+if (minutesSinceLastMessage && minutesSinceLastMessage > 30) heartbeatLogger.warn(logData, "⚠️ web gateway heartbeat - no messages in 30+ minutes");
+await processForRoute(msg, route, groupHistoryKey);
+"""
     patched, _ = patch_text(DIST_DIR / "channel-web-sl83aqDv.js", sample_web)
-    assert "cfg.web?.messageTimeoutMs" in patched
-    assert "cfg.web?.watchdogCheckMs" in patched
-
-    sample_schema = """\tweb: z.object({\n\t\tenabled: z.boolean().optional(),\n\t\theartbeatSeconds: z.number().int().positive().optional(),\n\t\treconnect: z.object({\n\t\tchannelHealthCheckMinutes: z.number().int().min(0).optional(),\n"""
-    schema_patched, _ = patch_text(DIST_DIR / "model-selection-CjMYMtR0.js", sample_schema)
-    assert "messageTimeoutMs" in schema_patched
-    assert "channelHealth" in schema_patched
+    assert f"tuning.messageTimeoutMs ?? 24 * 60 * 60 * 1e3" in patched
+    assert "minutesSinceLastMessage > 24 * 60" in patched
+    assert "no messages in 24h+ standby" in patched
+    assert "transient inbound read failure; retrying once" in patched
 
     sample_channels = {
         "channels": {
