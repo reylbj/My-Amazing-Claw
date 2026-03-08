@@ -40,6 +40,8 @@ EXPECTED_WEB_WATCHDOG_CHECK_MS = 5 * 60 * 1000
 EXPECTED_CHANNEL_HEALTH_THRESHOLD_MS = 6 * 60 * 60 * 1000
 EXPECTED_CHANNEL_HEALTH_CHECK_MINUTES = 5
 EXPECTED_AGENT_HEARTBEAT_EVERY = "0m"
+EXPECTED_GROUP_POLICY_FALLBACK = "open"
+GROUP_POLICY_CHANNELS = ("whatsapp", "telegram")
 RESTART_COOLDOWN_SECONDS = 15 * 60
 MAX_RESTARTS_PER_HOUR = 6
 INCIDENT_LOOKBACK_MINUTES = 180
@@ -202,6 +204,40 @@ def deep_delete(target: dict, keys: Sequence[str]) -> bool:
     return True
 
 
+def has_nonempty_string_items(value) -> bool:
+    if not isinstance(value, list):
+        return False
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            return True
+    return False
+
+
+def normalize_group_policy(payload: dict) -> list[str]:
+    channels = payload.get("channels")
+    if not isinstance(channels, dict):
+        return []
+
+    changed: list[str] = []
+    for channel in GROUP_POLICY_CHANNELS:
+        channel_cfg = channels.get(channel)
+        if not isinstance(channel_cfg, dict):
+            continue
+        if channel_cfg.get("groupPolicy") != "allowlist":
+            continue
+
+        has_allowlist = has_nonempty_string_items(channel_cfg.get("allowFrom")) or has_nonempty_string_items(
+            channel_cfg.get("groupAllowFrom")
+        )
+        if has_allowlist:
+            continue
+
+        channel_cfg["groupPolicy"] = EXPECTED_GROUP_POLICY_FALLBACK
+        changed.append(channel)
+
+    return changed
+
+
 def patch_text(path: Path, text: str) -> tuple[str, bool]:
     updated = text
     changed = False
@@ -342,6 +378,7 @@ def configure_openclaw(*, dry_run: bool) -> dict:
     deep_set(payload, ["agents", "defaults", "heartbeat", "every"], EXPECTED_AGENT_HEARTBEAT_EVERY)
     deep_set(payload, ["web", "heartbeatSeconds"], EXPECTED_WEB_HEARTBEAT_SECONDS)
     deep_set(payload, ["gateway", "channelHealthCheckMinutes"], EXPECTED_CHANNEL_HEALTH_CHECK_MINUTES)
+    normalize_group_policy(payload)
 
     if schema_supports_web_ext and runtime_supports_web_ext:
         deep_set(payload, ["web", "messageTimeoutMs"], EXPECTED_WEB_MESSAGE_TIMEOUT_MS)
@@ -644,6 +681,16 @@ def self_test() -> int:
     assert "messageTimeoutMs" in schema_patched
     assert "channelHealth" in schema_patched
 
+    sample_channels = {
+        "channels": {
+            "whatsapp": {"groupPolicy": "allowlist"},
+            "telegram": {"groupPolicy": "allowlist", "allowFrom": ["123456"]},
+        }
+    }
+    changed_channels = normalize_group_policy(sample_channels)
+    assert changed_channels == ["whatsapp"]
+    assert sample_channels["channels"]["whatsapp"]["groupPolicy"] == "open"
+
     config = {}
     with tempfile.TemporaryDirectory() as tmp:
         tmp_config = Path(tmp) / "openclaw.json"
@@ -686,6 +733,17 @@ def main() -> int:
             "heartbeat_every": payload.get("agents", {}).get("defaults", {}).get("heartbeat", {}).get("every"),
             "web": payload.get("web", {}),
             "channel_health": payload.get("gateway", {}).get("channelHealth", {}),
+            "group_policy": {
+                channel: payload.get("channels", {}).get(channel, {}).get("groupPolicy")
+                for channel in GROUP_POLICY_CHANNELS
+            },
+            "group_allowlist_sizes": {
+                channel: {
+                    "allowFrom": len(payload.get("channels", {}).get(channel, {}).get("allowFrom", []) or []),
+                    "groupAllowFrom": len(payload.get("channels", {}).get(channel, {}).get("groupAllowFrom", []) or []),
+                }
+                for channel in GROUP_POLICY_CHANNELS
+            },
         }, ensure_ascii=False, indent=2))
         return 0
 

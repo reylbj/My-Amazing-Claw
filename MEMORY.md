@@ -67,3 +67,8 @@
 - `-11 read` 复发后，runtime补丁必须覆盖 `daemon-cli` 与 `plugin-sdk`，不能只打 `channel-web/web`。
 - `openclaw_guardian.py configure` 必须“按schema支持写入”；不支持字段自动清理，避免 `Invalid config`。
 - 入站链路对 `Unknown system error -11, read` 做 1 次 250ms 重试；重启统一走 `bash scripts/gateway_stable_start.sh`。
+
+## 10) 2026-03-08 群消息静默丢弃修复
+- `channels.{whatsapp,telegram}.groupPolicy=allowlist` 且 `allowFrom/groupAllowFrom` 为空时，群消息会被静默丢弃。
+- `openclaw_guardian.py configure` 现在会自动兜底：空名单场景将 `groupPolicy` 改为 `open`（仅群策略）。
+- 验证口径：`openclaw gateway status` 不再出现该 doctor 警告，`check-once --dry-run` 的 `reasons` 为空。

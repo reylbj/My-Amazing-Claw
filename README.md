@@ -44,6 +44,7 @@ bash scripts/openclaw.sh guard install
 2026-03-08 补充：
 - 补丁改为按内容自动发现（覆盖 `daemon-cli` / `plugin-sdk`），避免版本文件名漂移导致补丁漏打。
 - 收到 `Unknown system error -11, read` 时，入站处理会自动重试 1 次（250ms），降低偶发读错误对回复链路的影响。
+- 当 `whatsapp/telegram` 群策略是 `allowlist` 且名单为空时，`configure` 会自动改为 `groupPolicy=open`，避免群消息被静默丢弃。
 
 查看守护状态：
 ```bash
