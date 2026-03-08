@@ -29,6 +29,23 @@ openclaw gateway install --force && openclaw gateway restart
 通过标准：脚本输出 `可安全新建会话`（内部已做连续探针稳定性检查）
 注意：点刷新后先跑一次稳定脚本，再开 `new session`，避免在 Warm-up 窗口触发 `-11 read`
 
+### 24x7 待命守护
+```bash
+bash scripts/install_openclaw_guardian.sh
+# 或统一入口：
+bash scripts/openclaw.sh guard install
+```
+这会做 4 件事：
+- 给已安装的 OpenClaw runtime 打补丁，让 WhatsApp idle/watchdog 阈值可配置
+- 把 `agents.defaults.heartbeat.every` 调整为 `0m`，避免周期性触发 `-11`
+- 将 WhatsApp 待机阈值调整到 6 小时，避免 30 分钟静默就误判断线
+- 安装 `ai.openclaw.guardian` LaunchAgent，每分钟巡检一次，命中 `-11` / 异常关闭时自动自愈
+
+查看守护状态：
+```bash
+python3 scripts/openclaw_guardian.py status
+```
+
 ---
 
 ## 🔐 安全加固（2026-03-07，基于 openclaw-security 落地）

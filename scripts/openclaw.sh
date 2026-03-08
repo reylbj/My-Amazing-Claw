@@ -262,6 +262,7 @@ OpenClaw 管理工具
 命令:
   init        初始化 OpenClaw 环境
   gateway     稳定启动网关（固化 Node 22 + 重启 + 验活）
+  guard       运行/安装 24x7 自愈守护
   status      显示当前配额状态
   report      生成每日使用报告
   test        测试智能路由器
@@ -276,6 +277,8 @@ OpenClaw 管理工具
 示例:
   $0 init          # 首次使用时初始化环境
   $0 gateway       # 稳定启动网关并验活（推荐日常入口）
+  $0 guard install # 安装 24x7 自愈守护
+  $0 guard status  # 查看守护状态
   $0 status        # 查看配额使用情况
   $0 report        # 生成今日使用报告
   $0 security      # 执行安全基线检查
@@ -328,6 +331,29 @@ run_gateway_stable_start() {
     fi
 }
 
+run_guardian() {
+    local action="${1:-check-once}"
+    local script="$SCRIPT_DIR/openclaw_guardian.py"
+    local installer="$SCRIPT_DIR/install_openclaw_guardian.sh"
+
+    if [[ "$action" == "install" ]]; then
+        if [[ -x "$installer" ]]; then
+            bash "$installer"
+        else
+            print_warning "守护安装脚本不存在或不可执行: $installer"
+            return 1
+        fi
+        return 0
+    fi
+
+    if [[ ! -f "$script" ]]; then
+        print_warning "守护脚本不存在: $script"
+        return 1
+    fi
+
+    python3 "$script" "$action" "${@:2}"
+}
+
 # 初始化
 init_openclaw() {
     print_banner
@@ -361,6 +387,9 @@ main() {
             ;;
         gateway)
             run_gateway_stable_start
+            ;;
+        guard|guardian)
+            run_guardian "${2:-check-once}" "${@:3}"
             ;;
         report)
             generate_report
