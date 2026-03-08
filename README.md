@@ -1,5 +1,10 @@
 # OpenClaw 快速入门 🚀
 
+## 2026-03-08 核心更新（极简）
+- guardian 运行目录已迁到 `~/.openclaw/guardian_runtime/scripts`，规避 macOS 对 Desktop 路径的 `Operation not permitted` 拦截。
+- 统一安装入口：`bash scripts/install_openclaw_guardian.sh`（会自动同步脚本到 runtime 目录并重建 LaunchAgent）。
+- 验证口径：`openclaw status` + `openclaw gateway status` + `launchctl list | rg ai.openclaw.guardian`。
+
 ## 核心文档（每次执行前必读）
 - [SKILLS.md](SKILLS.md) - 技能树与软件使用细则
 - [HEARTBEAT.md](HEARTBEAT.md) - 安全控制与权限底线

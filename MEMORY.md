@@ -78,3 +78,9 @@
 - `api123/gpt-5.4` 渠道已从 `~/.openclaw/openclaw.json` 与 `~/.openclaw/agents/main/agent/models.json` 清除。
 - 默认模型固定 `api123/claude-sonnet-4-6`；备用固定 `openai-codex/gpt-5.3-codex`。
 - 实测验证：`openai-codex/gpt-5.3-codex` 探针调用成功后已切回默认 `sonnet`。
+
+## 12) 2026-03-08 guardian 启动路径固化
+- 根因：launchd 直接访问 Desktop 中文路径脚本，持续报 `Operation not permitted`，导致 guardian 自愈失效并放大掉线体感。
+- 固化：安装脚本改为先同步 `openclaw_guardian.py` 与 `gateway_stable_start.sh` 到 `~/.openclaw/guardian_runtime/scripts`，LaunchAgent 固定跑该路径。
+- 兼容：`gateway_stable_start.sh` 去除对 `rg` 的强依赖，缺失时自动降级 `grep`，避免守护环境因 PATH 差异失败。
+- 验证：`launchctl list` 中 `ai.openclaw.guardian` 返回码应为 `0`，`openclaw status` 渠道状态保持 `Telegram/WhatsApp = OK`。

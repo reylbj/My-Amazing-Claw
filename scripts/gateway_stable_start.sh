@@ -16,11 +16,21 @@ ok() { printf '[gateway-stable] OK: %s\n' "$1"; }
 warn() { printf '[gateway-stable] WARN: %s\n' "$1"; }
 err() { printf '[gateway-stable] ERROR: %s\n' "$1" >&2; }
 
-need_cmd() {
-  local cmd="$1"
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    err "缺少命令: ${cmd}"
-    exit 1
+has_match() {
+  local pattern="$1"
+  if command -v rg >/dev/null 2>&1; then
+    rg -q -- "$pattern"
+  else
+    grep -Eq -- "$pattern"
+  fi
+}
+
+show_matches() {
+  local pattern="$1"
+  if command -v rg >/dev/null 2>&1; then
+    rg -n -- "$pattern" -S
+  else
+    grep -En -- "$pattern"
   fi
 }
 
@@ -80,17 +90,17 @@ verify_status_or_fail() {
 
 status_has_expected_node22() {
   local status_text="$1"
-  echo "$status_text" | rg -q "Command: ${EXPECTED_NODE_PATTERN} "
+  echo "$status_text" | has_match "Command: ${EXPECTED_NODE_PATTERN} "
 }
 
 status_probe_ok() {
   local status_text="$1"
-  echo "$status_text" | rg -q 'RPC probe: ok'
+  echo "$status_text" | has_match 'RPC probe: ok'
 }
 
 status_in_warmup() {
   local status_text="$1"
-  echo "$status_text" | rg -q 'Warm-up:'
+  echo "$status_text" | has_match 'Warm-up:'
 }
 
 probe_until_stable() {
@@ -113,7 +123,7 @@ probe_until_stable() {
     else
       consecutive_ok=0
       warn "网关尚未稳定（第${attempt}次），继续等待"
-      echo "$status_text" | rg -n 'RPC probe|Warm-up|gateway closed|Runtime:|Command:' -S || true
+      echo "$status_text" | show_matches 'RPC probe|Warm-up|gateway closed|Runtime:|Command:' || true
     fi
 
     attempt=$((attempt + 1))
@@ -125,13 +135,12 @@ probe_until_stable() {
 }
 
 main() {
-  need_cmd rg
   ensure_runtime_prereq
 
   local before_status after_status
   before_status="$(gateway_status || true)"
 
-  if ! echo "$before_status" | rg -q "Command: ${EXPECTED_NODE_PATTERN} "; then
+  if ! echo "$before_status" | has_match "Command: ${EXPECTED_NODE_PATTERN} "; then
     warn "检测到网关运行时漂移，执行 install --force 修复"
     install_force_node22
   fi

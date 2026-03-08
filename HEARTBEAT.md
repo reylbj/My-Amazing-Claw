@@ -115,6 +115,8 @@
 5. **密钥安全**: 不暴露密钥、凭证存`.credentials`、示例用占位符
 6. **SSH私钥**: Secure Enclave硬件隔离、永不落盘
 7. **代码/生产变更**: 本地改→测试→commit→确认→推送/部署、不直接改线上核心代码
+8. **LaunchAgent路径安全**: 禁止把守护脚本运行路径放在 Desktop/Downloads 等受隐私保护目录；统一使用 `~/.openclaw/guardian_runtime`。
+9. **守护重装后必验收**: 至少执行 `openclaw status`、`openclaw gateway status`、`launchctl list | rg ai.openclaw.guardian`。
 
 ---
 
