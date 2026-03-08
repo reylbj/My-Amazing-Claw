@@ -72,3 +72,8 @@
 - `channels.{whatsapp,telegram}.groupPolicy=allowlist` 且 `allowFrom/groupAllowFrom` 为空时，群消息会被静默丢弃。
 - `openclaw_guardian.py configure` 现在会自动兜底：空名单场景将 `groupPolicy` 改为 `open`（仅群策略）。
 - 验证口径：`openclaw gateway status` 不再出现该 doctor 警告，`check-once --dry-run` 的 `reasons` 为空。
+
+## 11) 2026-03-08 模型路由固定
+- `api123/gpt-5.4` 渠道已从 `~/.openclaw/openclaw.json` 与 `~/.openclaw/agents/main/agent/models.json` 清除。
+- 默认模型固定 `api123/claude-sonnet-4-6`；备用固定 `openai-codex/gpt-5.3-codex`。
+- 实测验证：`openai-codex/gpt-5.3-codex` 探针调用成功后已切回默认 `sonnet`。
