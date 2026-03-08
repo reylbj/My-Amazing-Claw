@@ -117,6 +117,7 @@
 7. **代码/生产变更**: 本地改→测试→commit→确认→推送/部署、不直接改线上核心代码
 8. **LaunchAgent路径安全**: 禁止把守护脚本运行路径放在 Desktop/Downloads 等受隐私保护目录；统一使用 `~/.openclaw/guardian_runtime`。
 9. **守护重装后必验收**: 至少执行 `openclaw status`、`openclaw gateway status`、`launchctl list | rg ai.openclaw.guardian`。
+10. **Gateway工作区路径安全**: `agents.defaults.workspace` 禁止直指 Desktop 中文/emoji 路径；统一使用 `~/.openclaw/workspace-runtime` 软链接路径。
 
 ---
 

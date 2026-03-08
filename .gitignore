@@ -5,6 +5,7 @@ __pycache__/
 node_modules/
 .env
 *.log
+logs/
 
 # 包含私密信息的配置文件
 MEMORY.md

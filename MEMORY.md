@@ -84,3 +84,8 @@
 - 固化：安装脚本改为先同步 `openclaw_guardian.py` 与 `gateway_stable_start.sh` 到 `~/.openclaw/guardian_runtime/scripts`，LaunchAgent 固定跑该路径。
 - 兼容：`gateway_stable_start.sh` 去除对 `rg` 的强依赖，缺失时自动降级 `grep`，避免守护环境因 PATH 差异失败。
 - 验证：`launchctl list` 中 `ai.openclaw.guardian` 返回码应为 `0`，`openclaw status` 渠道状态保持 `Telegram/WhatsApp = OK`。
+
+## 13) 2026-03-08 聊天链路根治（-11）
+- 结论：`agents.defaults.workspace` 直接指向 Desktop 中文/emoji 路径时，gateway 路径曾复现 `Unknown system error -11, read`，并触发 fallback 导致变慢。
+- 固化：workspace 改为 `~/.openclaw/workspace-runtime`，该路径是指向真实项目目录的软链接（保持单份代码，不做镜像副本）。
+- 验收：连续 2+ 次 `openclaw agent --agent main --message "只回OK" --json` 均 `status=ok`，且新时间窗日志无 `Unknown system error -11`。
