@@ -106,6 +106,7 @@
 ## 自定义铁律
 
 1. **openclaw.json修改**: 改前备份(带时间戳) → 查文档确认字段 → 双验证(JSON解析+openclaw doctor) → 重启
+   字段由 `scripts/openclaw_guardian.py configure` 自动按 runtime schema 兼容写入，禁止手工添加未知字段。
 2. **禁止危险重启**: 禁止kill前台+systemd start、stop+start连击 → 优先restart
 3. **禁止猜命令/配置**: 不熟悉先查文档/--help、配置字段按schema
 4. **给选项必须等确认**: 不可擅自拍板

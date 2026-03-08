@@ -41,6 +41,10 @@ bash scripts/openclaw.sh guard install
 - 将 WhatsApp 待机阈值调整到 6 小时，避免 30 分钟静默就误判断线
 - 安装 `ai.openclaw.guardian` LaunchAgent，每分钟巡检一次，命中 `-11` / 异常关闭时自动自愈
 
+2026-03-08 补充：
+- 补丁改为按内容自动发现（覆盖 `daemon-cli` / `plugin-sdk`），避免版本文件名漂移导致补丁漏打。
+- 收到 `Unknown system error -11, read` 时，入站处理会自动重试 1 次（250ms），降低偶发读错误对回复链路的影响。
+
 查看守护状态：
 ```bash
 python3 scripts/openclaw_guardian.py status

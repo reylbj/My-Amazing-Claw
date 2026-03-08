@@ -62,3 +62,8 @@
 5. **密钥安全**: 不暴露密钥、凭证存`.credentials`、示例用占位符
 6. **SSH私钥**: Secure Enclave硬件隔离、永不落盘
 7. **代码/生产变更**: 本地改→测试→commit→确认→推送/部署、不直接改线上核心代码
+
+## 9) 2026-03-08 网关复发固定解法
+- `-11 read` 复发后，runtime补丁必须覆盖 `daemon-cli` 与 `plugin-sdk`，不能只打 `channel-web/web`。
+- `openclaw_guardian.py configure` 必须“按schema支持写入”；不支持字段自动清理，避免 `Invalid config`。
+- 入站链路对 `Unknown system error -11, read` 做 1 次 250ms 重试；重启统一走 `bash scripts/gateway_stable_start.sh`。

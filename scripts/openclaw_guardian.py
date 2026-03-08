@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -48,6 +49,17 @@ PATTERN_ABNORMAL_CLOSE = "gateway closed (1006 abnormal closure"
 PATTERN_FETCH_FAILED = "TypeError: fetch failed"
 PATTERN_MAX_ATTEMPTS = "web reconnect: max attempts reached"
 PATTERN_STALE_SOCKET = "health-monitor: restarting (reason: stale-socket)"
+
+RUNTIME_PATCH_GLOBS = (
+    "channel-web-*.js",
+    "web-*.js",
+    "auth-profiles-*.js",
+    "model-selection-*.js",
+    "gateway-cli-*.js",
+    "daemon-cli.js",
+    "plugin-sdk/channel-web-*.js",
+    "plugin-sdk/config-*.js",
+)
 
 
 @dataclass
@@ -160,65 +172,90 @@ def replace_once(text: str, old: str, new: str, *, description: str) -> tuple[st
     return text.replace(old, new, 1), True
 
 
+def replace_when_present(text: str, old: str, new: str) -> tuple[str, bool]:
+    if new in text:
+        return text, False
+    if old not in text:
+        return text, False
+    return text.replace(old, new, 1), True
+
+
+def deep_delete(target: dict, keys: Sequence[str]) -> bool:
+    current = target
+    parents: list[tuple[dict, str]] = []
+    for key in keys[:-1]:
+        existing = current.get(key)
+        if not isinstance(existing, dict):
+            return False
+        parents.append((current, key))
+        current = existing
+    leaf = keys[-1]
+    if leaf not in current:
+        return False
+    del current[leaf]
+    for parent, key in reversed(parents):
+        child = parent.get(key)
+        if isinstance(child, dict) and not child:
+            del parent[key]
+        else:
+            break
+    return True
+
+
 def patch_text(path: Path, text: str) -> tuple[str, bool]:
     updated = text
     changed = False
 
-    if path.name in {
-        "channel-web-sl83aqDv.js",
-        "channel-web-k1Tb8tGz.js",
-        "web-CSq0l9pG.js",
-        "web-pFdwPQ7y.js",
-    }:
-        updated, did_change = replace_once(
+    if path.name.startswith("channel-web-") or path.name.startswith("web-"):
+        updated, did_change = replace_when_present(
             updated,
             "const MESSAGE_TIMEOUT_MS = tuning.messageTimeoutMs ?? 1800 * 1e3;",
             "const MESSAGE_TIMEOUT_MS = tuning.messageTimeoutMs ?? cfg.web?.messageTimeoutMs ?? 1800 * 1e3;",
-            description=f"{path.name}:message-timeout",
         )
         changed = changed or did_change
-        updated, did_change = replace_once(
+        updated, did_change = replace_when_present(
             updated,
             "const WATCHDOG_CHECK_MS = tuning.watchdogCheckMs ?? 60 * 1e3;",
             "const WATCHDOG_CHECK_MS = tuning.watchdogCheckMs ?? cfg.web?.watchdogCheckMs ?? 60 * 1e3;",
-            description=f"{path.name}:watchdog-check",
+        )
+        changed = changed or did_change
+        updated, did_change = replace_when_present(
+            updated,
+            "await processForRoute(msg, route, groupHistoryKey);",
+            """try {\n\t\t\tawait processForRoute(msg, route, groupHistoryKey);\n\t\t} catch (err) {\n\t\t\tconst errText = String(err);\n\t\t\tconst transientReadFailure = errText.includes("Unknown system error -11") && errText.includes("read");\n\t\t\tif (!transientReadFailure) throw err;\n\t\t\tparams.replyLogger.warn({ error: errText, code: err?.code, errno: err?.errno, syscall: err?.syscall }, "transient inbound read failure; retrying once");\n\t\t\tawait sleepWithAbort(250);\n\t\t\tawait processForRoute(msg, route, groupHistoryKey);\n\t\t}""",
         )
         changed = changed or did_change
 
-    if path.name in {
-        "auth-profiles-CNyDTsy4.js",
-        "model-selection-CjMYMtR0.js",
-        "model-selection-Zb7eBzSY.js",
-        "model-selection-ikt2OC4j.js",
-    }:
-        updated, did_change = replace_once(
+    if (
+        path.name.startswith("auth-profiles-")
+        or path.name.startswith("model-selection-")
+        or path.name == "daemon-cli.js"
+        or (path.parent.name == "plugin-sdk" and path.name.startswith("config-"))
+    ):
+        updated, did_change = replace_when_present(
             updated,
             """\tweb: z.object({\n\t\tenabled: z.boolean().optional(),\n\t\theartbeatSeconds: z.number().int().positive().optional(),\n\t\treconnect: z.object({""",
             """\tweb: z.object({\n\t\tenabled: z.boolean().optional(),\n\t\theartbeatSeconds: z.number().int().positive().optional(),\n\t\tmessageTimeoutMs: z.number().int().positive().optional(),\n\t\twatchdogCheckMs: z.number().int().positive().optional(),\n\t\treconnect: z.object({""",
-            description=f"{path.name}:web-schema",
         )
         changed = changed or did_change
-        updated, did_change = replace_once(
+        updated, did_change = replace_when_present(
             updated,
             "\t\tchannelHealthCheckMinutes: z.number().int().min(0).optional(),",
             """\t\tchannelHealthCheckMinutes: z.number().int().min(0).optional(),\n\t\tchannelHealth: z.object({\n\t\t\tmonitorStartupGraceMs: z.number().int().positive().optional(),\n\t\t\tchannelConnectGraceMs: z.number().int().positive().optional(),\n\t\t\tstaleEventThresholdMs: z.number().int().positive().optional()\n\t\t}).strict().optional(),""",
-            description=f"{path.name}:gateway-channel-health-schema",
         )
         changed = changed or did_change
 
-    if path.name in {"gateway-cli-vk3t7zJU.js", "gateway-cli-CuFEx2ht.js"}:
-        updated, did_change = replace_once(
+    if path.name.startswith("gateway-cli-"):
+        updated, did_change = replace_when_present(
             updated,
             """\tlet channelHealthMonitor = healthCheckMinutes === 0 ? null : startChannelHealthMonitor({\n\t\tchannelManager,\n\t\tcheckIntervalMs: (healthCheckMinutes ?? 5) * 6e4\n\t});""",
             """\tlet channelHealthMonitor = healthCheckMinutes === 0 ? null : startChannelHealthMonitor({\n\t\tchannelManager,\n\t\tcheckIntervalMs: (healthCheckMinutes ?? 5) * 6e4,\n\t\ttiming: cfgAtStart.gateway?.channelHealth\n\t});""",
-            description=f"{path.name}:initial-health-monitor",
         )
         changed = changed or did_change
-        updated, did_change = replace_once(
+        updated, did_change = replace_when_present(
             updated,
             """\t\t\tcreateHealthMonitor: (checkIntervalMs) => startChannelHealthMonitor({\n\t\t\t\tchannelManager,\n\t\t\t\tcheckIntervalMs\n\t\t\t})""",
             """\t\t\tcreateHealthMonitor: (checkIntervalMs) => startChannelHealthMonitor({\n\t\t\t\tchannelManager,\n\t\t\t\tcheckIntervalMs,\n\t\t\t\ttiming: loadConfig().gateway?.channelHealth\n\t\t\t})""",
-            description=f"{path.name}:reload-health-monitor",
         )
         changed = changed or did_change
 
@@ -226,18 +263,14 @@ def patch_text(path: Path, text: str) -> tuple[str, bool]:
 
 
 def patch_runtime(*, dry_run: bool) -> dict[str, list[str]]:
-    targets = [
-        DIST_DIR / "channel-web-sl83aqDv.js",
-        DIST_DIR / "channel-web-k1Tb8tGz.js",
-        DIST_DIR / "web-CSq0l9pG.js",
-        DIST_DIR / "web-pFdwPQ7y.js",
-        DIST_DIR / "auth-profiles-CNyDTsy4.js",
-        DIST_DIR / "model-selection-CjMYMtR0.js",
-        DIST_DIR / "model-selection-Zb7eBzSY.js",
-        DIST_DIR / "model-selection-ikt2OC4j.js",
-        DIST_DIR / "gateway-cli-vk3t7zJU.js",
-        DIST_DIR / "gateway-cli-CuFEx2ht.js",
-    ]
+    targets: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in RUNTIME_PATCH_GLOBS:
+        for candidate in sorted(DIST_DIR.glob(pattern)):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            targets.append(candidate)
     applied: list[str] = []
     skipped: list[str] = []
 
@@ -248,21 +281,23 @@ def patch_runtime(*, dry_run: bool) -> dict[str, list[str]]:
     backup_dir = OPENCLAW_BACKUP_DIR / backup_stamp
 
     for target in targets:
+        rel = str(target.relative_to(DIST_DIR))
         if not target.exists():
-            skipped.append(f"{target.name}:missing")
+            skipped.append(f"{rel}:missing")
             continue
         original = target.read_text(encoding="utf-8")
         updated, changed = patch_text(target, original)
         if not changed:
-            skipped.append(f"{target.name}:already-patched")
+            skipped.append(f"{rel}:already-patched")
             continue
         if dry_run:
-            applied.append(f"{target.name}:would-patch")
+            applied.append(f"{rel}:would-patch")
             continue
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        (backup_dir / target.name).write_text(original, encoding="utf-8")
+        backup_target = backup_dir / rel
+        ensure_parent(backup_target)
+        backup_target.write_text(original, encoding="utf-8")
         target.write_text(updated, encoding="utf-8")
-        applied.append(f"{target.name}:patched")
+        applied.append(f"{rel}:patched")
 
     return {"applied": applied, "skipped": skipped}
 
@@ -272,14 +307,55 @@ def configure_openclaw(*, dry_run: bool) -> dict:
     if not isinstance(payload, dict):
         raise ValueError(f"invalid config: {OPENCLAW_CONFIG}")
 
+    schema_supports_web_ext = False
+    schema_supports_channel_health_obj = False
+    runtime_supports_web_ext = False
+    runtime_supports_channel_health_obj = False
+    if DIST_DIR.exists():
+        schema_candidates = [DIST_DIR / "daemon-cli.js"]
+        schema_candidates.extend(sorted(DIST_DIR.glob("auth-profiles-*.js")))
+        schema_candidates.extend(sorted(DIST_DIR.glob("model-selection-*.js")))
+        schema_candidates.extend(sorted(DIST_DIR.glob("plugin-sdk/config-*.js")))
+        runtime_candidates = sorted(DIST_DIR.glob("channel-web-*.js"))
+        runtime_candidates.extend(sorted(DIST_DIR.glob("web-*.js")))
+        runtime_candidates.extend(sorted(DIST_DIR.glob("plugin-sdk/channel-web-*.js")))
+        gateway_candidates = sorted(DIST_DIR.glob("gateway-cli-*.js"))
+        for candidate in schema_candidates:
+            if not candidate.exists():
+                continue
+            text = candidate.read_text(encoding="utf-8", errors="replace")
+            if "messageTimeoutMs: z.number().int().positive().optional()" in text and "watchdogCheckMs: z.number().int().positive().optional()" in text:
+                schema_supports_web_ext = True
+            if "channelHealth: z.object({" in text:
+                schema_supports_channel_health_obj = True
+        for candidate in runtime_candidates:
+            text = candidate.read_text(encoding="utf-8", errors="replace")
+            if "cfg.web?.messageTimeoutMs" in text and "cfg.web?.watchdogCheckMs" in text:
+                runtime_supports_web_ext = True
+                break
+        for candidate in gateway_candidates:
+            text = candidate.read_text(encoding="utf-8", errors="replace")
+            if "timing: cfgAtStart.gateway?.channelHealth" in text and "timing: loadConfig().gateway?.channelHealth" in text:
+                runtime_supports_channel_health_obj = True
+                break
+
     deep_set(payload, ["agents", "defaults", "heartbeat", "every"], EXPECTED_AGENT_HEARTBEAT_EVERY)
     deep_set(payload, ["web", "heartbeatSeconds"], EXPECTED_WEB_HEARTBEAT_SECONDS)
-    deep_set(payload, ["web", "messageTimeoutMs"], EXPECTED_WEB_MESSAGE_TIMEOUT_MS)
-    deep_set(payload, ["web", "watchdogCheckMs"], EXPECTED_WEB_WATCHDOG_CHECK_MS)
     deep_set(payload, ["gateway", "channelHealthCheckMinutes"], EXPECTED_CHANNEL_HEALTH_CHECK_MINUTES)
-    deep_set(payload, ["gateway", "channelHealth", "monitorStartupGraceMs"], 60_000)
-    deep_set(payload, ["gateway", "channelHealth", "channelConnectGraceMs"], 120_000)
-    deep_set(payload, ["gateway", "channelHealth", "staleEventThresholdMs"], EXPECTED_CHANNEL_HEALTH_THRESHOLD_MS)
+
+    if schema_supports_web_ext and runtime_supports_web_ext:
+        deep_set(payload, ["web", "messageTimeoutMs"], EXPECTED_WEB_MESSAGE_TIMEOUT_MS)
+        deep_set(payload, ["web", "watchdogCheckMs"], EXPECTED_WEB_WATCHDOG_CHECK_MS)
+    else:
+        deep_delete(payload, ["web", "messageTimeoutMs"])
+        deep_delete(payload, ["web", "watchdogCheckMs"])
+
+    if schema_supports_channel_health_obj and runtime_supports_channel_health_obj:
+        deep_set(payload, ["gateway", "channelHealth", "monitorStartupGraceMs"], 60_000)
+        deep_set(payload, ["gateway", "channelHealth", "channelConnectGraceMs"], 120_000)
+        deep_set(payload, ["gateway", "channelHealth", "staleEventThresholdMs"], EXPECTED_CHANNEL_HEALTH_THRESHOLD_MS)
+    else:
+        deep_delete(payload, ["gateway", "channelHealth"])
 
     if not dry_run:
         backup_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -320,7 +396,7 @@ def render_launch_agent_plist() -> str:
       <key>HOME</key>
       <string>{Path.home()}</string>
       <key>PATH</key>
-      <string>{Path.home() / ".local" / "bin"}:{Path.home() / ".npm-global" / "bin"}:{Path.home() / "bin"}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+      <string>{Path.home() / ".local" / "bin"}:{Path.home() / ".npm-global" / "bin"}:{Path.home() / "bin"}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
     <key>StandardOutPath</key>
     <string>{stdout_path}</string>
@@ -402,8 +478,11 @@ def collect_recent_incidents(paths: Iterable[Path], *, lookback_minutes: int) ->
 
 
 def is_listener_up() -> bool:
-    result = run_command(["lsof", "-iTCP:18789", "-sTCP:LISTEN", "-n", "-P"], timeout=10)
-    return result.returncode == 0 and "18789" in result.stdout
+    try:
+        with socket.create_connection(("127.0.0.1", 18789), timeout=2):
+            return True
+    except OSError:
+        return False
 
 
 def is_launchagent_node22() -> bool:
