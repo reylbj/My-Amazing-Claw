@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}系统设置 - 🐟多账号自动回复系统{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-gear"></i> 系统设置</h2>
+        </div>
+
+        <!-- 基础配置 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-sliders"></i> 基础配置</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>注意：</strong>以下设置为当前运行时配置，重启程序后将恢复为.env文件中的值。
+                </div>
+
+                <form id="settings-form">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="heartbeat_interval" class="form-label">心跳间隔 (秒)</label>
+                            <input type="number" class="form-control" id="heartbeat_interval" 
+                                   value="{{ settings.HEARTBEAT_INTERVAL }}" min="5" max="300">
+                            <div class="form-text">WebSocket心跳包发送间隔</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="token_refresh_interval" class="form-label">Token刷新间隔 (秒)</label>
+                            <input type="number" class="form-control" id="token_refresh_interval" 
+                                   value="{{ settings.TOKEN_REFRESH_INTERVAL }}" min="300" max="7200">
+                            <div class="form-text">访问Token自动刷新间隔</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="manual_mode_timeout" class="form-label">人工接管超时 (秒)</label>
+                            <input type="number" class="form-control" id="manual_mode_timeout" 
+                                   value="{{ settings.MANUAL_MODE_TIMEOUT }}" min="300" max="86400">
+                            <div class="form-text">人工接管模式自动恢复时间</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="log_level" class="form-label">日志级别</label>
+                            <select class="form-select" id="log_level">
+                                <option value="DEBUG" {% if settings.LOG_LEVEL == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                                <option value="INFO" {% if settings.LOG_LEVEL == 'INFO' %}selected{% endif %}>INFO</option>
+                                <option value="WARNING" {% if settings.LOG_LEVEL == 'WARNING' %}selected{% endif %}>WARNING</option>
+                                <option value="ERROR" {% if settings.LOG_LEVEL == 'ERROR' %}selected{% endif %}>ERROR</option>
+                            </select>
+                            <div class="form-text">系统日志输出级别</div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" disabled>
+                        <i class="bi bi-check-circle"></i> 保存设置 (功能待实现)
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 数据管理 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-database"></i> 数据管理</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <div class="card border-primary">
+                            <div class="card-body text-center">
+                                <i class="bi bi-download display-4 text-primary"></i>
+                                <h6 class="mt-2">数据备份</h6>
+                                <p class="text-muted small">导出所有账号配置和聊天记录</p>
+                                <button class="btn btn-primary" onclick="backupData()">
+                                    <i class="bi bi-download"></i> 备份数据
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <div class="card border-warning">
+                            <div class="card-body text-center">
+                                <i class="bi bi-upload display-4 text-warning"></i>
+                                <h6 class="mt-2">数据恢复</h6>
+                                <p class="text-muted small">从备份文件恢复配置和数据</p>
+                                <input type="file" id="restore-file" accept=".json,.sql" style="display: none;" onchange="restoreData(this)">
+                                <button class="btn btn-warning" onclick="document.getElementById('restore-file').click()">
+                                    <i class="bi bi-upload"></i> 恢复数据
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="alert alert-warning mt-3">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>重要：</strong>数据恢复操作会覆盖现有数据，请在操作前确保已备份重要数据。
+                </div>
+            </div>
+        </div>
+
+        <!-- 系统信息 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-info-circle"></i> 系统信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="row" id="system-info">
+                    <div class="col-md-6 mb-3">
+                        <h6>Python版本</h6>
+                        <p class="text-muted" id="python-version">获取中...</p>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <h6>运行时间</h6>
+                        <p class="text-muted" id="uptime">获取中...</p>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <h6>内存使用</h6>
+                        <p class="text-muted" id="memory-usage">获取中...</p>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <h6>数据库大小</h6>
+                        <p class="text-muted" id="db-size">获取中...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 关于 -->
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-heart"></i> 关于</h5>
+            </div>
+            <div class="card-body">
+                <div class="text-center">
+                    <h5>🐟多账号自动回复系统</h5>
+                    <p class="text-muted">基于AI的智能客服解决方案</p>
+                    
+                    <div class="mt-4">
+                        <h6>功能特性</h6>
+                        <div class="row text-start">
+                            <div class="col-md-6">
+                                <ul class="list-unstyled">
+                                    <li><i class="bi bi-check-circle text-success"></i> 多账号并行运行</li>
+                                    <li><i class="bi bi-check-circle text-success"></i> 智能意图识别</li>
+                                    <li><i class="bi bi-check-circle text-success"></i> 自定义AI提示词</li>
+                                    <li><i class="bi bi-check-circle text-success"></i> 买家&卖家双模式</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <ul class="list-unstyled">
+                                    <li><i class="bi bi-check-circle text-success"></i> Web可视化管理</li>
+                                    <li><i class="bi bi-check-circle text-success"></i> 实时状态监控</li>
+                                    <li><i class="bi bi-check-circle text-success"></i> 人工接管模式</li>
+                                    <li><i class="bi bi-check-circle text-success"></i> 数据备份恢复</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 text-muted">
+                        <small>
+                            <i class="bi bi-github"></i> 开源项目，遵循学习交流原则<br>
+                            如有问题请联系项目维护者
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 备份数据
+    function backupData() {
+        showMessage('数据备份功能待实现', 'info');
+        
+        // TODO: 实现数据备份
+        // 可以调用后端API生成备份文件并下载
+    }
+
+    // 恢复数据
+    function restoreData(input) {
+        const file = input.files[0];
+        if (!file) return;
+        
+        if (!confirm('确定要恢复数据吗？这将覆盖现有的所有数据！')) {
+            input.value = '';
+            return;
+        }
+        
+        showMessage('数据恢复功能待实现', 'info');
+        input.value = '';
+        
+        // TODO: 实现数据恢复
+        // 上传文件到后端进行恢复处理
+    }
+
+    // 获取系统信息
+    async function loadSystemInfo() {
+        // 模拟系统信息（实际使用中应该从后端API获取）
+        const systemInfo = {
+            pythonVersion: 'Python 3.9.7',
+            uptime: '2天 3小时 15分钟',
+            memoryUsage: '245MB / 8GB',
+            dbSize: '12.5MB'
+        };
+        
+        document.getElementById('python-version').textContent = systemInfo.pythonVersion;
+        document.getElementById('uptime').textContent = systemInfo.uptime;
+        document.getElementById('memory-usage').textContent = systemInfo.memoryUsage;
+        document.getElementById('db-size').textContent = systemInfo.dbSize;
+    }
+
+    // 页面加载完成
+    document.addEventListener('DOMContentLoaded', function() {
+        loadSystemInfo();
+        
+        // 设置表单提交处理
+        document.getElementById('settings-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            showMessage('设置保存功能待实现', 'info');
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block title %}账号管理 - 多账号智能管理系统{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-kanban"></i> 账号管理中心</h2>
+            <div class="btn-group" role="group">
+                <a href="{{ url_for('create_account') }}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> 添加账号
+                </a>
+                <button class="btn btn-outline-primary" onclick="refreshStatus()">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新状态
+                </button>
+            </div>
+        </div>
+
+        {% if error %}
+        <div class="alert alert-danger" role="alert">
+            <i class="bi bi-exclamation-triangle"></i> 错误: {{ error }}
+        </div>
+        {% endif %}
+
+        {% if not accounts %}
+        <div class="text-center py-5 empty-state">
+            <i class="bi bi-inbox display-1 text-muted"></i>
+            <h4 class="mt-3 text-muted">暂无账号数据</h4>
+            <p class="text-muted">开始添加您的第一个账号以使用智能管理功能</p>
+            <a href="{{ url_for('create_account') }}" class="btn btn-primary btn-lg">
+                <i class="bi bi-plus-circle"></i> 立即添加账号
+            </a>
+        </div>
+        {% else %}
+        <div class="row" id="accounts-container">
+            {% for account in accounts %}
+            <div class="col-lg-6 col-xl-4 mb-4">
+                <div class="card account-card h-100" data-account-id="{{ account.id }}">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="bi bi-person-badge"></i> {{ account.account_name }}
+                        </h5>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                <i class="bi bi-three-dots-vertical"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="{{ url_for('account_config', account_id=account.id) }}">
+                                    <i class="bi bi-sliders"></i> 配置管理
+                                </a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteAccount({{ account.id }}, '{{ account.account_name }}')">
+                                    <i class="bi bi-trash3"></i> 删除账号
+                                </a></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="card-body">
+                        <div class="row text-center mb-4">
+                            <div class="col-6">
+                                <div class="connection-status" id="status-{{ account.id }}">
+                                    <span class="badge bg-secondary">检测中</span>
+                                </div>
+                                <small class="text-muted d-block mt-1">连接状态</small>
+                            </div>
+                            <div class="col-6">
+                                <div class="running-status" id="running-{{ account.id }}">
+                                    <span class="badge bg-secondary">待启动</span>
+                                </div>
+                                <small class="text-muted d-block mt-1">运行状态</small>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted fw-semibold">用户标识</small>
+                                <span class="badge bg-light text-dark font-monospace">{{ account.user_id[:8] }}...</span>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted fw-semibold">卖家模式</small>
+                                    {% if account.seller_enabled %}
+                                        <span class="badge bg-success"><i class="bi bi-check-circle"></i> 已启用</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary"><i class="bi bi-x-circle"></i> 已禁用</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted fw-semibold">买家模式</small>
+                                    {% if account.buyer_enabled %}
+                                        <span class="badge bg-success"><i class="bi bi-check-circle"></i> 已启用</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary"><i class="bi bi-x-circle"></i> 已禁用</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted fw-semibold">最后活动</small>
+                                <small class="text-muted last-activity" id="activity-{{ account.id }}">
+                                    {{ account.last_activity if account.last_activity else '暂无数据' }}
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="error-info" id="error-{{ account.id }}" style="display: none;">
+                            <small class="text-muted">错误信息:</small>
+                            <div class="text-danger small"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-footer">
+                        <div class="d-grid gap-2">
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-success btn-start" onclick="startAccount({{ account.id }})">
+                                    <i class="bi bi-play-fill"></i> 启动
+                                </button>
+                                <button class="btn btn-danger btn-stop" onclick="stopAccount({{ account.id }})">
+                                    <i class="bi bi-stop-fill"></i> 停止
+                                </button>
+                            </div>
+                            <a href="{{ url_for('account_config', account_id=account.id) }}" class="btn btn-outline-primary">
+                                <i class="bi bi-sliders"></i> 管理配置
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 启动账号
+    async function startAccount(accountId) {
+        try {
+            const response = await axios.post(`/account/${accountId}/start`);
+            if (response.data.success) {
+                showMessage(response.data.message, 'success');
+                updateAccountStatus();
+            } else {
+                showMessage(response.data.message, 'danger');
+            }
+        } catch (error) {
+            showMessage('启动失败: ' + error.message, 'danger');
+        }
+    }
+
+    // 停止账号
+    async function stopAccount(accountId) {
+        try {
+            const response = await axios.post(`/account/${accountId}/stop`);
+            if (response.data.success) {
+                showMessage(response.data.message, 'success');
+                updateAccountStatus();
+            } else {
+                showMessage(response.data.message, 'danger');
+            }
+        } catch (error) {
+            showMessage('停止失败: ' + error.message, 'danger');
+        }
+    }
+
+    // 删除账号
+    async function deleteAccount(accountId, accountName) {
+        const result = await showConfirmDialog(
+            '确认删除账号',
+            `您确定要删除账号 "${accountName}" 吗？\n\n此操作将永久删除账号数据且无法恢复。`,
+            '删除',
+            'danger'
+        );
+        
+        if (!result) return;
+
+        try {
+            const response = await axios.post(`/account/${accountId}/delete`);
+            if (response.data.success) {
+                showMessage(response.data.message, 'success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showMessage(response.data.message, 'danger');
+            }
+        } catch (error) {
+            showMessage('删除操作失败: ' + error.message, 'danger');
+        }
+    }
+
+    // 更新账号状态
+    async function updateAccountStatus() {
+        try {
+            const response = await axios.get('/api/accounts/status');
+            if (response.data.success) {
+                const accounts = response.data.data;
+                accounts.forEach(account => {
+                    updateAccountCard(account);
+                });
+            }
+        } catch (error) {
+            console.error('更新状态失败:', error);
+        }
+    }
+
+    // 更新单个账号卡片
+    function updateAccountCard(account) {
+        const accountId = account.id;
+        
+        // 更新连接状态
+        const statusElement = document.getElementById(`status-${accountId}`);
+        if (statusElement) {
+            statusElement.innerHTML = getStatusBadge(account.connection_status || 'disconnected');
+        }
+
+        // 更新运行状态
+        const runningElement = document.getElementById(`running-${accountId}`);
+        if (runningElement) {
+            const isRunning = account.is_running;
+            const statusHtml = isRunning ? 
+                '<span class="badge bg-success"><i class="bi bi-play-fill"></i> 运行中</span>' : 
+                '<span class="badge bg-secondary"><i class="bi bi-stop-fill"></i> 已停止</span>';
+            runningElement.innerHTML = statusHtml;
+        }
+
+        // 更新最后活动时间
+        const activityElement = document.getElementById(`activity-${accountId}`);
+        if (activityElement) {
+            activityElement.textContent = formatTime(account.last_activity);
+        }
+
+        // 更新错误信息
+        const errorElement = document.getElementById(`error-${accountId}`);
+        if (errorElement && account.last_error) {
+            errorElement.style.display = 'block';
+            errorElement.querySelector('.text-danger').textContent = account.last_error;
+        } else if (errorElement) {
+            errorElement.style.display = 'none';
+        }
+    }
+
+    // 刷新状态
+    function refreshStatus() {
+        updateAccountStatus();
+        showMessage('状态已刷新', 'info');
+    }
+
+    // 页面加载完成后立即更新状态
+    document.addEventListener('DOMContentLoaded', function() {
+        updateAccountStatus();
+        
+        // 定时刷新状态 (每30秒)
+        setInterval(updateAccountStatus, 30000);
+    });
+</script>
+{% endblock %}

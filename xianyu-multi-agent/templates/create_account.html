@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}添加账号 - 多账号智能管理系统{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-lg">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="bi bi-plus-circle"></i> 添加新账号</h4>
+            </div>
+            <div class="card-body">
+                <form id="create-account-form">
+                    <div class="mb-3">
+                        <label for="account_name" class="form-label">账号名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="account_name" name="account_name" required>
+                        <div class="form-text">为此账号起一个容易识别的名称</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="user_id" class="form-label">用户ID <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control font-monospace" id="user_id" name="user_id" required>
+                        <div class="form-text">闲鱼账号的用户ID，可以在Cookie中的unb字段找到</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="cookies" class="form-label">Cookies <span class="text-danger">*</span></label>
+                        <textarea class="form-control font-monospace" id="cookies" name="cookies" rows="4" required 
+                                  placeholder="请粘贴从浏览器获取的完整Cookie字符串"></textarea>
+                        <div class="form-text">
+                            <strong>如何获取Cookie：</strong><br>
+                            1. 打开浏览器，登录闲鱼网站<br>
+                            2. 按F12打开开发者工具<br>
+                            3. 在Network选项卡中找到任意请求<br>
+                            4. 复制Request Headers中的Cookie字段值
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="seller_enabled" name="seller_enabled" checked>
+                                <label class="form-check-label" for="seller_enabled">
+                                    启用卖家回复
+                                </label>
+                                <div class="form-text">作为卖家时自动回复买家消息</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="buyer_enabled" name="buyer_enabled" checked>
+                                <label class="form-check-label" for="buyer_enabled">
+                                    启用买家回复
+                                </label>
+                                <div class="form-text">作为买家时自动回复卖家消息</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info border-0">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>操作提示</strong>
+                        <ul class="mb-0 mt-2">
+                            <li>账号创建后将使用默认的AI提示词配置，您可在配置页面中自定义</li>
+                            <li>建议首次使用时先测试单个账号，确认正常运行后再添加更多账号</li>
+                            <li>请确保Cookie信息的有效性，无效Cookie将导致连接失败</li>
+                        </ul>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left"></i> 返回列表
+                        </a>
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="bi bi-check-circle"></i> 创建账号
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.getElementById('create-account-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        // 获取表单数据
+        const formData = new FormData(this);
+        const data = {
+            account_name: formData.get('account_name').trim(),
+            user_id: formData.get('user_id').trim(),
+            cookies: formData.get('cookies').trim(),
+            seller_enabled: formData.has('seller_enabled'),
+            buyer_enabled: formData.has('buyer_enabled')
+        };
+
+        // 验证数据
+        if (!data.account_name || !data.user_id || !data.cookies) {
+            showMessage('请填写所有必填项', 'danger');
+            return;
+        }
+
+        // 简单验证Cookie格式
+        if (!data.cookies.includes('unb=')) {
+            showMessage('Cookie格式似乎不正确，请确保包含unb字段', 'warning');
+        }
+
+        // 禁用提交按钮并显示加载状态
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="bi bi-hourglass-split spinner-border spinner-border-sm me-2"></i>创建中...';
+
+        try {
+            const response = await axios.post('/account/new', data, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.data.success) {
+                showMessage(response.data.message + ' 正在跳转...', 'success');
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1500);
+            } else {
+                showMessage(response.data.message, 'danger');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
+        } catch (error) {
+            showMessage('创建失败: ' + error.message, 'danger');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        }
+    });
+
+    // 从Cookie中自动提取用户ID
+    document.getElementById('cookies').addEventListener('blur', function() {
+        const cookies = this.value;
+        const userIdInput = document.getElementById('user_id');
+        
+        if (!userIdInput.value && cookies) {
+            // 尝试从Cookie中提取unb值
+            const match = cookies.match(/unb=([^;]+)/);
+            if (match) {
+                userIdInput.value = match[1];
+                showMessage('已自动填入用户ID', 'info');
+            }
+        }
+    });
+</script>
+{% endblock %}

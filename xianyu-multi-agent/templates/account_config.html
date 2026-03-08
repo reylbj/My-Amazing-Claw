@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+
+{% block title %}账号配置 - {{ account.account_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-gear"></i> 账号配置 - {{ account.account_name }}</h2>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> 返回列表
+            </a>
+        </div>
+
+        <div class="row">
+            <!-- 基本信息 -->
+            <div class="col-lg-4 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-person-card"></i> 基本信息</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="basic-info-form">
+                            <div class="mb-3">
+                                <label for="account_name" class="form-label">账号名称</label>
+                                <input type="text" class="form-control" id="account_name" name="account_name" 
+                                       value="{{ account.account_name }}" required>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="user_id" class="form-label">用户ID</label>
+                                <input type="text" class="form-control font-monospace" id="user_id" name="user_id" 
+                                       value="{{ account.user_id }}" readonly>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="cookies" class="form-label">Cookies</label>
+                                <textarea class="form-control font-monospace" id="cookies" name="cookies" 
+                                          rows="3">{{ account.cookies }}</textarea>
+                            </div>
+
+                            <div class="mb-3">
+                                <h6>功能开关</h6>
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="seller_enabled" 
+                                           name="seller_enabled" {% if account.seller_enabled %}checked{% endif %}>
+                                    <label class="form-check-label" for="seller_enabled">
+                                        启用卖家回复
+                                    </label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="buyer_enabled" 
+                                           name="buyer_enabled" {% if account.buyer_enabled %}checked{% endif %}>
+                                    <label class="form-check-label" for="buyer_enabled">
+                                        启用买家回复
+                                    </label>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bi bi-check-circle"></i> 保存基本信息
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 账号状态卡片 -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-activity"></i> 运行状态</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-6">
+                                <div id="connection-status">
+                                    <span class="badge bg-secondary">未知</span>
+                                </div>
+                                <small class="text-muted d-block">连接状态</small>
+                            </div>
+                            <div class="col-6">
+                                <div id="running-status">
+                                    <span class="badge bg-secondary">未知</span>
+                                </div>
+                                <small class="text-muted d-block">运行状态</small>
+                            </div>
+                        </div>
+
+                        <hr>
+
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-success" onclick="startAccount()">
+                                <i class="bi bi-play-fill"></i> 启动账号
+                            </button>
+                            <button class="btn btn-danger" onclick="stopAccount()">
+                                <i class="bi bi-stop-fill"></i> 停止账号
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 提示词配置 -->
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <ul class="nav nav-tabs card-header-tabs" id="prompt-tabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="classify-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#classify-pane" type="button" role="tab">
+                                    意图分类
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="price-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#price-pane" type="button" role="tab">
+                                    价格谈判
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="tech-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#tech-pane" type="button" role="tab">
+                                    技术咨询
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="default-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#default-pane" type="button" role="tab">
+                                    默认回复
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="buyer-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#buyer-pane" type="button" role="tab">
+                                    买家回复
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card-body">
+                        <form id="prompts-form">
+                            <div class="tab-content" id="prompt-tab-content">
+                                <!-- 意图分类提示词 -->
+                                <div class="tab-pane fade show active" id="classify-pane" role="tabpanel">
+                                    <div class="mb-3">
+                                        <label for="classify_prompt" class="form-label">
+                                            <strong>意图分类提示词</strong>
+                                            <small class="text-muted">- 用于识别用户消息的意图类型</small>
+                                        </label>
+                                        <textarea class="form-control prompt-textarea" id="classify_prompt" 
+                                                  name="classify_prompt" rows="12">{{ prompts.get('classify', '') }}</textarea>
+                                        <div class="form-text">
+                                            此提示词用于AI判断用户消息是价格谈判、技术咨询还是普通对话
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 价格谈判提示词 -->
+                                <div class="tab-pane fade" id="price-pane" role="tabpanel">
+                                    <div class="mb-3">
+                                        <label for="price_prompt" class="form-label">
+                                            <strong>价格谈判提示词</strong>
+                                            <small class="text-muted">- 处理议价和价格相关询问</small>
+                                        </label>
+                                        <textarea class="form-control prompt-textarea" id="price_prompt" 
+                                                  name="price_prompt" rows="12">{{ prompts.get('price', '') }}</textarea>
+                                        <div class="form-text">
+                                            定义AI如何回应买家的议价请求，包括议价策略和话术
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 技术咨询提示词 -->
+                                <div class="tab-pane fade" id="tech-pane" role="tabpanel">
+                                    <div class="mb-3">
+                                        <label for="tech_prompt" class="form-label">
+                                            <strong>技术咨询提示词</strong>
+                                            <small class="text-muted">- 回答产品技术规格和使用问题</small>
+                                        </label>
+                                        <textarea class="form-control prompt-textarea" id="tech_prompt" 
+                                                  name="tech_prompt" rows="12">{{ prompts.get('tech', '') }}</textarea>
+                                        <div class="form-text">
+                                            指导AI如何回答关于商品规格、使用方法等技术性问题
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 默认回复提示词 -->
+                                <div class="tab-pane fade" id="default-pane" role="tabpanel">
+                                    <div class="mb-3">
+                                        <label for="default_prompt" class="form-label">
+                                            <strong>默认回复提示词</strong>
+                                            <small class="text-muted">- 处理一般性对话和客服咨询</small>
+                                        </label>
+                                        <textarea class="form-control prompt-textarea" id="default_prompt" 
+                                                  name="default_prompt" rows="12">{{ prompts.get('default', '') }}</textarea>
+                                        <div class="form-text">
+                                            用于回复无法分类到其他类型的一般性消息
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 买家回复提示词 -->
+                                <div class="tab-pane fade" id="buyer-pane" role="tabpanel">
+                                    <div class="mb-3">
+                                        <label for="buyer_prompt" class="form-label">
+                                            <strong>买家回复提示词</strong>
+                                            <small class="text-muted">- 作为买家时的回复策略</small>
+                                        </label>
+                                        <textarea class="form-control prompt-textarea" id="buyer_prompt" 
+                                                  name="buyer_prompt" rows="12">{{ prompts.get('buyer', '') }}</textarea>
+                                        <div class="form-text">
+                                            定义AI作为买家时如何与卖家沟通，包括询价、议价等行为
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between mt-4">
+                                <button type="button" class="btn btn-outline-secondary" onclick="resetPrompts()">
+                                    <i class="bi bi-arrow-clockwise"></i> 重置为默认
+                                </button>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check-circle"></i> 保存所有提示词
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const accountId = {{ account.id }};
+
+    // 保存基本信息
+    document.getElementById('basic-info-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const data = {
+            account_name: formData.get('account_name').trim(),
+            cookies: formData.get('cookies').trim(),
+            seller_enabled: formData.has('seller_enabled'),
+            buyer_enabled: formData.has('buyer_enabled')
+        };
+
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 保存中...';
+
+        try {
+            const response = await axios.post(`/account/${accountId}/config`, data, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.data.success) {
+                showMessage(response.data.message, 'success');
+            } else {
+                showMessage(response.data.message, 'danger');
+            }
+        } catch (error) {
+            showMessage('保存失败: ' + error.message, 'danger');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        }
+    });
+
+    // 保存提示词
+    document.getElementById('prompts-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const data = {};
+        
+        // 收集所有提示词
+        ['classify', 'price', 'tech', 'default', 'buyer'].forEach(type => {
+            const value = formData.get(`${type}_prompt`);
+            if (value) {
+                data[`${type}_prompt`] = value.trim();
+            }
+        });
+
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 保存中...';
+
+        try {
+            const response = await axios.post(`/account/${accountId}/config`, data, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.data.success) {
+                showMessage(response.data.message, 'success');
+            } else {
+                showMessage(response.data.message, 'danger');
+            }
+        } catch (error) {
+            showMessage('保存失败: ' + error.message, 'danger');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        }
+    });
+
+    // 启动账号
+    async function startAccount() {
+        try {
+            const response = await axios.post(`/account/${accountId}/start`);
+            if (response.data.success) {
+                showMessage(response.data.message, 'success');
+                updateAccountStatus();
+            } else {
+                showMessage(response.data.message, 'danger');
+            }
+        } catch (error) {
+            showMessage('启动失败: ' + error.message, 'danger');
+        }
+    }
+
+    // 停止账号
+    async function stopAccount() {
+        try {
+            const response = await axios.post(`/account/${accountId}/stop`);
+            if (response.data.success) {
+                showMessage(response.data.message, 'success');
+                updateAccountStatus();
+            } else {
+                showMessage(response.data.message, 'danger');
+            }
+        } catch (error) {
+            showMessage('停止失败: ' + error.message, 'danger');
+        }
+    }
+
+    // 更新账号状态
+    async function updateAccountStatus() {
+        try {
+            const response = await axios.get('/api/accounts/status');
+            if (response.data.success) {
+                const account = response.data.data.find(acc => acc.id === accountId);
+                if (account) {
+                    // 更新连接状态
+                    document.getElementById('connection-status').innerHTML = 
+                        getStatusBadge(account.connection_status || 'disconnected');
+                    
+                    // 更新运行状态
+                    document.getElementById('running-status').innerHTML = 
+                        account.is_running ? 
+                        '<span class="badge bg-success">运行中</span>' : 
+                        '<span class="badge bg-secondary">已停止</span>';
+                }
+            }
+        } catch (error) {
+            console.error('更新状态失败:', error);
+        }
+    }
+
+    // 重置提示词
+    function resetPrompts() {
+        if (confirm('确定要重置所有提示词为默认值吗？未保存的更改将丢失！')) {
+            // 这里可以实现重置逻辑，或者提供重置接口
+            showMessage('重置功能待实现', 'info');
+        }
+    }
+
+    // 页面加载完成后更新状态
+    document.addEventListener('DOMContentLoaded', function() {
+        updateAccountStatus();
+        
+        // 定时刷新状态
+        setInterval(updateAccountStatus, 30000);
+    });
+</script>
+{% endblock %}
