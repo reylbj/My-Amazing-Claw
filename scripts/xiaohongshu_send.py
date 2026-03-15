@@ -30,11 +30,28 @@ def workspace_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def default_xhs_home() -> Path:
+def candidate_xhs_homes() -> List[Path]:
     env = os.getenv("XHS_HOME")
+    candidates: List[Path] = []
     if env:
-        return Path(env)
-    return workspace_root() / "xiaohongshu-send"
+        candidates.append(Path(env).expanduser())
+
+    root = workspace_root()
+    candidates.extend(
+        [
+            root / "skills" / "xiaohongshu-send",
+            root / "xiaohongshu-send",
+        ]
+    )
+    return candidates
+
+
+def default_xhs_home() -> Path:
+    candidates = candidate_xhs_homes()
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 def calc_title_length(text: str) -> int:

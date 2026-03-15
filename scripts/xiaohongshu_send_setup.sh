@@ -6,8 +6,10 @@ umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=./xiaohongshu_paths.sh
+source "${SCRIPT_DIR}/xiaohongshu_paths.sh"
 
-XHS_HOME="${XHS_HOME:-${WORKSPACE_DIR}/xiaohongshu-send}"
+XHS_HOME="${XHS_HOME:-$(xhs_resolve_home "${WORKSPACE_DIR}")}"
 BIN_DIR="${XHS_HOME}/bin"
 DATA_DIR="${XHS_HOME}/data"
 LOG_DIR="${XHS_HOME}/logs"
@@ -34,7 +36,7 @@ Usage:
   bash scripts/xiaohongshu_send_setup.sh paths
 
 Environment:
-  XHS_HOME      默认: <workspace>/xiaohongshu-send
+  XHS_HOME      默认优先: <workspace>/skills/xiaohongshu-send；其次 <workspace>/xiaohongshu-send
   XHS_PORT      默认: 18060
   COOKIES_PATH  默认: <XHS_HOME>/data/cookies.json
   XHS_ROD_OPTIONS 默认: dir=<XHS_HOME>/profile

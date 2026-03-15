@@ -12,9 +12,13 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=./xiaohongshu_paths.sh
+source "${SCRIPT_DIR}/xiaohongshu_paths.sh"
 STATE_DIR="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
 CONFIG_FILE="${STATE_DIR}/openclaw.json"
 MODE="${1:-check}"
+XHS_HOME="$(xhs_resolve_home "${WORKSPACE_DIR}")"
+XHS_NOTE_HOME="$(xhs_resolve_note_skill_dir "${WORKSPACE_DIR}")"
 
 ok_count=0
 warn_count=0
@@ -268,6 +272,8 @@ check_sensitive_permissions() {
   check_or_fix_tree_file_perms "$STATE_DIR/identity" 600
 
   local cookie_files=(
+    "$XHS_HOME/data/cookies.json"
+    "$XHS_HOME/data/cookies.backup.json"
     "$WORKSPACE_DIR/xiaohongshu-send/data/cookies.json"
     "$WORKSPACE_DIR/xiaohongshu-send/data/cookies.backup.json"
     "$HOME/xhs_workspace/xiaohongshu-send/data/cookies.json"
@@ -275,6 +281,7 @@ check_sensitive_permissions() {
   )
 
   local cookie_dirs=(
+    "$XHS_HOME/data"
     "$WORKSPACE_DIR/xiaohongshu-send/data"
     "$HOME/xhs_workspace/xiaohongshu-send/data"
   )
@@ -295,6 +302,7 @@ scan_risky_patterns() {
 
   local targets=(
     "$WORKSPACE_DIR/scripts"
+    "$XHS_NOTE_HOME/scripts"
     "$WORKSPACE_DIR/小红书笔记技能包/scripts"
   )
 

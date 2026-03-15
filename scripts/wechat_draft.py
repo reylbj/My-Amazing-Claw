@@ -182,14 +182,29 @@ if __name__ == "__main__":
     # 从文件读取内容
     if args.file:
         with open(args.file, 'r', encoding='utf-8') as f:
-            md = f.read()
-        if not args.title:
-            # 从第一行 # 标题提取
-            for line in md.splitlines():
-                if line.startswith("# "):
-                    args.title = line[2:].strip()
-                    break
-        args.content = convert_md_to_html(md)
+            content_raw = f.read()
+        
+        # 检测是否为HTML（如果包含<section>或<p>标签则认为是HTML）
+        is_html = '<section' in content_raw or '<p style=' in content_raw or content_raw.strip().startswith('<')
+        
+        if is_html:
+            # 直接使用HTML内容，不转换
+            args.content = content_raw
+            # 从HTML中提取标题（如果有<h1>标签）
+            if not args.title:
+                import re
+                h1_match = re.search(r'<h1[^>]*>(.+?)</h1>', content_raw)
+                if h1_match:
+                    args.title = re.sub(r'<[^>]+>', '', h1_match.group(1))  # 去除HTML标签
+        else:
+            # Markdown内容，需要转换
+            if not args.title:
+                # 从第一行 # 标题提取
+                for line in content_raw.splitlines():
+                    if line.startswith("# "):
+                        args.title = line[2:].strip()
+                        break
+            args.content = convert_md_to_html(content_raw)
 
     if not args.title or not args.content:
         print("❌ 需要 --title 和 --content（或 --file）")

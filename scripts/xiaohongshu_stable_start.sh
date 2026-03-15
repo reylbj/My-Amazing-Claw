@@ -6,7 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-XHS_HOME="${WORKSPACE_DIR}/xiaohongshu-send"
+# shellcheck source=./xiaohongshu_paths.sh
+source "${SCRIPT_DIR}/xiaohongshu_paths.sh"
+XHS_HOME="$(xhs_resolve_home "${WORKSPACE_DIR}")"
 DATA_DIR="${XHS_HOME}/data"
 PROFILE_DIR="${XHS_HOME}/profile"
 COOKIE_FILE="${DATA_DIR}/cookies.json"

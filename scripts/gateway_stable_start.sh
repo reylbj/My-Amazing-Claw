@@ -4,9 +4,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GUARDIAN_SCRIPT="${SCRIPT_DIR}/openclaw_guardian.py"
 NODE22_BIN="${HOME}/.npm-global/lib/node_modules/node/bin/node"
 OPENCLAW_BIN="${HOME}/.npm-global/bin/openclaw"
-EXPECTED_NODE_PATTERN="${HOME}/.npm-global/lib/node_modules/node/bin/node"
 STABLE_REQUIRED_OK=3
 STABLE_MAX_ATTEMPTS=12
 STABLE_SLEEP_SEC=2
@@ -19,7 +20,7 @@ err() { printf '[gateway-stable] ERROR: %s\n' "$1" >&2; }
 has_match() {
   local pattern="$1"
   if command -v rg >/dev/null 2>&1; then
-    rg -q -- "$pattern"
+    rg -q -S -- "$pattern"
   else
     grep -Eq -- "$pattern"
   fi
@@ -28,10 +29,27 @@ has_match() {
 show_matches() {
   local pattern="$1"
   if command -v rg >/dev/null 2>&1; then
-    rg -n -- "$pattern" -S
+    rg -n -S -- "$pattern"
   else
     grep -En -- "$pattern"
   fi
+}
+
+extract_command_node_path() {
+  local status_text="$1"
+  echo "$status_text" | sed -n 's/^Command: \([^ ]*\) .*/\1/p' | head -n 1
+}
+
+node_path_is_v22() {
+  local node_path="$1"
+  local version
+
+  if [[ -z "$node_path" || ! -x "$node_path" ]]; then
+    return 1
+  fi
+
+  version="$("$node_path" -v 2>/dev/null || true)"
+  [[ "$version" =~ ^v22\. ]]
 }
 
 ensure_runtime_prereq() {
@@ -48,12 +66,22 @@ ensure_runtime_prereq() {
   fi
 }
 
+repair_local_config() {
+  if [[ ! -f "$GUARDIAN_SCRIPT" ]]; then
+    warn "未找到本地 guardian 配置修复器，跳过启动前配置归一化"
+    return 0
+  fi
+
+  info "启动前执行配置归一化"
+  python3 "$GUARDIAN_SCRIPT" configure >/dev/null
+}
+
 gateway_status() {
   PATH="${HOME}/.npm-global/bin:${PATH}" "$OPENCLAW_BIN" gateway status 2>&1
 }
 
 install_force_node22() {
-  info "固化 LaunchAgent 到 Node 22 路径"
+  info "重装 LaunchAgent 并校准到 Node 22"
   PATH="${HOME}/.npm-global/lib/node_modules/node/bin:${HOME}/.npm-global/bin:${PATH}" \
     "$OPENCLAW_BIN" gateway install --force >/dev/null
 }
@@ -65,9 +93,11 @@ restart_gateway() {
 
 verify_status_or_fail() {
   local status_text="$1"
+  local node_path
 
   if status_has_expected_node22 "$status_text"; then
-    ok "网关服务已固定使用 Node 22"
+    node_path="$(extract_command_node_path "$status_text")"
+    ok "网关服务已使用 Node 22 (${node_path})"
   else
     err "网关服务未固定到 Node 22，当前 Command 如下："
     echo "$status_text" | rg -n '^Command: ' -S || true
@@ -90,7 +120,10 @@ verify_status_or_fail() {
 
 status_has_expected_node22() {
   local status_text="$1"
-  echo "$status_text" | has_match "Command: ${EXPECTED_NODE_PATTERN} "
+  local node_path
+
+  node_path="$(extract_command_node_path "$status_text")"
+  node_path_is_v22 "$node_path"
 }
 
 status_probe_ok() {
@@ -101,6 +134,11 @@ status_probe_ok() {
 status_in_warmup() {
   local status_text="$1"
   echo "$status_text" | has_match 'Warm-up:'
+}
+
+status_missing_service() {
+  local status_text="$1"
+  echo "$status_text" | has_match 'Service not installed|Service unit not found|Could not find service "ai\.openclaw\.gateway"'
 }
 
 probe_until_stable() {
@@ -136,11 +174,18 @@ probe_until_stable() {
 
 main() {
   ensure_runtime_prereq
+  repair_local_config
 
   local before_status after_status
   before_status="$(gateway_status || true)"
 
-  if ! echo "$before_status" | has_match "Command: ${EXPECTED_NODE_PATTERN} "; then
+  if status_missing_service "$before_status"; then
+    warn "检测到网关服务未安装，执行 install --force 修复"
+    install_force_node22
+    before_status="$(gateway_status || true)"
+  fi
+
+  if ! status_has_expected_node22 "$before_status"; then
     warn "检测到网关运行时漂移，执行 install --force 修复"
     install_force_node22
   fi

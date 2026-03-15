@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>宠物健康档案</title>
+  <style>
+    :root {
+      --color-primary: #1272FF;
+      --color-success: #27C274;
+      --color-warning: #FF9214;
+      --color-danger: #F43B2C;
+      --color-text-primary: rgba(0, 0, 0, 0.85);
+      --color-text-secondary: rgba(0, 0, 0, 0.45);
+      --color-border: #D1D7E1;
+      --color-bg-base: #F5F7FA;
+      --color-bg-white: #FFFFFF;
+      --border-radius: 4px;
+      --font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-family); font-size: 14px; color: var(--color-text-primary); background: var(--color-bg-base); padding: 20px; }
+    
+    .container { max-width: 1200px; margin: 0 auto; background: var(--color-bg-white); padding: 24px; border-radius: 8px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    
+    .btn { display: inline-block; padding: 0 16px; height: 32px; line-height: 32px; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 14px; transition: all 0.2s; }
+    .btn-primary { background: var(--color-primary); color: white; }
+    .btn-primary:hover { opacity: 0.85; }
+    
+    .filter-bar { display: flex; gap: 12px; margin-bottom: 16px; padding: 16px; background: var(--color-bg-base); border-radius: var(--border-radius); }
+    .filter-bar select { padding: 0 12px; height: 32px; border: 1px solid var(--color-border); border-radius: var(--border-radius); }
+    
+    table { width: 100%; border-collapse: collapse; }
+    thead { background: var(--color-bg-base); }
+    th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--color-border); }
+    th { font-weight: 600; color: var(--color-text-primary); }
+    td { color: var(--color-text-primary); }
+    tbody tr:hover { background: rgba(18, 114, 255, 0.04); }
+    
+    .status-tag { display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 12px; }
+    .status-normal { background: #E8F5E9; color: #27C274; }
+    .status-warning { background: #FFF3E0; color: #FF9214; }
+    .status-danger { background: #FFEBEE; color: #F43B2C; }
+    
+    .action-link { color: var(--color-primary); cursor: pointer; margin-right: 12px; }
+    .action-link:hover { text-decoration: underline; }
+    
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+    .modal.active { display: flex; align-items: center; justify-content: center; }
+    .modal-content { background: white; padding: 24px; border-radius: 8px; width: 500px; max-height: 80vh; overflow-y: auto; }
+    .modal-header { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+    .modal-footer { margin-top: 24px; text-align: right; }
+    .modal-footer .btn { margin-left: 8px; }
+    
+    .form-item { margin-bottom: 16px; }
+    .form-item label { display: block; margin-bottom: 8px; font-weight: 500; }
+    .form-item input, .form-item textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: var(--border-radius); }
+    .form-item textarea { min-height: 80px; resize: vertical; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>宠物健康档案</h1>
+      <button class="btn btn-primary" onclick="openAddModal()">+ 新建档案</button>
+    </div>
+    
+    <div class="filter-bar">
+      <select id="petTypeFilter" onchange="filterRecords()">
+        <option value="">全部宠物类型</option>
+        <option value="dog">狗</option>
+        <option value="cat">猫</option>
+      </select>
+      <select id="statusFilter" onchange="filterRecords()">
+        <option value="">全部健康状态</option>
+        <option value="normal">正常</option>
+        <option value="warning">需关注</option>
+        <option value="danger">异常</option>
+      </select>
+    </div>
+    
+    <table id="recordTable">
+      <thead>
+        <tr>
+          <th>宠物名称</th>
+          <th>类型</th>
+          <th>年龄</th>
+          <th>健康状态</th>
+          <th>最近体检</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <!-- 数据由 JS 动态渲染 -->
+      </tbody>
+    </table>
+  </div>
+  
+  <div id="addModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">新建健康档案</div>
+      <div class="form-item">
+        <label>宠物名称</label>
+        <input type="text" id="petName" placeholder="请输入宠物名称">
+      </div>
+      <div class="form-item">
+        <label>宠物类型</label>
+        <select id="petType">
+          <option value="dog">狗</option>
+          <option value="cat">猫</option>
+        </select>
+      </div>
+      <div class="form-item">
+        <label>年龄（岁）</label>
+        <input type="number" id="petAge" placeholder="请输入年龄">
+      </div>
+      <div class="form-item">
+        <label>健康状态</label>
+        <select id="healthStatus">
+          <option value="normal">正常</option>
+          <option value="warning">需关注</option>
+          <option value="danger">异常</option>
+        </select>
+      </div>
+      <div class="form-item">
+        <label>备注</label>
+        <textarea id="remarks" placeholder="请输入备注信息"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveRecord()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 模拟数据
+    let records = [
+      { id: 1, name: '旺财', type: 'dog', age: 3, status: 'normal', lastCheck: '2026-02-15' },
+      { id: 2, name: '咪咪', type: 'cat', age: 2, status: 'warning', lastCheck: '2026-03-01' },
+      { id: 3, name: '大黄', type: 'dog', age: 5, status: 'danger', lastCheck: '2026-01-20' }
+    ];
+    
+    const statusMap = {
+      normal: { text: '正常', class: 'status-normal' },
+      warning: { text: '需关注', class: 'status-warning' },
+      danger: { text: '异常', class: 'status-danger' }
+    };
+    
+    const typeMap = { dog: '狗', cat: '猫' };
+    
+    function renderTable(data = records) {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = data.map(r => `
+        <tr>
+          <td>${r.name}</td>
+          <td>${typeMap[r.type]}</td>
+          <td>${r.age}岁</td>
+          <td><span class="status-tag ${statusMap[r.status].class}">${statusMap[r.status].text}</span></td>
+          <td>${r.lastCheck}</td>
+          <td>
+            <span class="action-link" onclick="viewDetail(${r.id})">查看</span>
+            <span class="action-link" onclick="editRecord(${r.id})">编辑</span>
+            <span class="action-link" style="color: var(--color-danger);" onclick="deleteRecord(${r.id})">删除</span>
+          </td>
+        </tr>
+      `).join('');
+    }
+    
+    function filterRecords() {
+      const typeFilter = document.getElementById('petTypeFilter').value;
+      const statusFilter = document.getElementById('statusFilter').value;
+      
+      const filtered = records.filter(r => {
+        return (!typeFilter || r.type === typeFilter) && (!statusFilter || r.status === statusFilter);
+      });
+      
+      renderTable(filtered);
+    }
+    
+    function openAddModal() {
+      document.getElementById('addModal').classList.add('active');
+    }
+    
+    function closeModal() {
+      document.getElementById('addModal').classList.remove('active');
+    }
+    
+    function saveRecord() {
+      const name = document.getElementById('petName').value;
+      const type = document.getElementById('petType').value;
+      const age = document.getElementById('petAge').value;
+      const status = document.getElementById('healthStatus').value;
+      
+      if (!name || !age) {
+        alert('请填写必填项');
+        return;
+      }
+      
+      records.push({
+        id: records.length + 1,
+        name,
+        type,
+        age: parseInt(age),
+        status,
+        lastCheck: new Date().toISOString().split('T')[0]
+      });
+      
+      renderTable();
+      closeModal();
+      
+      // 清空表单
+      document.getElementById('petName').value = '';
+      document.getElementById('petAge').value = '';
+    }
+    
+    function viewDetail(id) {
+      alert('查看详情功能（ID: ' + id + '）');
+    }
+    
+    function editRecord(id) {
+      alert('编辑功能（ID: ' + id + '）');
+    }
+    
+    function deleteRecord(id) {
+      if (confirm('确认删除该档案？')) {
+        records = records.filter(r => r.id !== id);
+        renderTable();
+      }
+    }
+    
+    // 初始化渲染
+    renderTable();
+  </script>
+</body>
+</html>

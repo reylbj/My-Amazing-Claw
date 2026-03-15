@@ -3,6 +3,15 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=./xiaohongshu_paths.sh
+source "${SCRIPT_DIR}/xiaohongshu_paths.sh"
+
+WORKSPACE_XHS_HOME="$(xhs_resolve_home "${WORKSPACE_DIR}")"
+RUNTIME_XHS_HOME="${XHS_RUNTIME_HOME:-$HOME/xhs_workspace/xiaohongshu-send}"
+SOURCE_BIN_DIR="${WORKSPACE_XHS_HOME}/bin"
+
 log() {
   printf '[xhs-fix] %s\n' "$1"
 }
@@ -18,13 +27,17 @@ sleep 1
 
 # 2. 确保工作目录存在
 log "2. 准备工作目录"
-mkdir -p ~/xhs_workspace/xiaohongshu-send/{bin,data,logs,profile}
+mkdir -p "${RUNTIME_XHS_HOME}/bin" "${RUNTIME_XHS_HOME}/data" "${RUNTIME_XHS_HOME}/logs" "${RUNTIME_XHS_HOME}/profile"
 
 # 3. 复制二进制文件（如果不存在）
-if [[ ! -f ~/xhs_workspace/xiaohongshu-send/bin/xiaohongshu-mcp ]]; then
+if [[ ! -f "${RUNTIME_XHS_HOME}/bin/xiaohongshu-mcp" ]]; then
   log "3. 复制MCP二进制文件"
-  cp -r "/Users/a8/Desktop/家养小龙虾🦞/openclaw-workspace/xiaohongshu-send/bin/"* ~/xhs_workspace/xiaohongshu-send/bin/
-  chmod +x ~/xhs_workspace/xiaohongshu-send/bin/*
+  [[ -d "${SOURCE_BIN_DIR}" ]] || {
+    log "❌ 未找到MCP二进制目录: ${SOURCE_BIN_DIR}"
+    exit 1
+  }
+  cp -r "${SOURCE_BIN_DIR}/"* "${RUNTIME_XHS_HOME}/bin/"
+  chmod +x "${RUNTIME_XHS_HOME}/bin/"*
 fi
 
 # 4. 提示用户导出Cookie
@@ -42,10 +55,10 @@ log ""
 log "6. Cookie已复制到剪贴板"
 log "7. 运行以下命令保存Cookie："
 log ""
-echo "   pbpaste > ~/xhs_workspace/xiaohongshu-send/data/cookies.json"
+echo "   pbpaste > ${RUNTIME_XHS_HOME}/data/cookies.json"
 log ""
 log "8. 然后运行："
 log ""
-echo "   bash /Users/a8/Desktop/家养小龙虾🦞/openclaw-workspace/scripts/xiaohongshu_start_fixed.sh"
+echo "   bash ${SCRIPT_DIR}/xiaohongshu_start_fixed.sh"
 log ""
 log "=========================================="

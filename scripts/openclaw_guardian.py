@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import plistlib
 import re
 import socket
 import subprocess
@@ -33,7 +34,6 @@ LAUNCH_AGENT_PATH = Path.home() / "Library" / "LaunchAgents" / "ai.openclaw.guar
 DIST_DIR = Path.home() / ".npm-global" / "lib" / "node_modules" / "openclaw" / "dist"
 GATEWAY_STABLE_SCRIPT = ROOT_DIR / "scripts" / "gateway_stable_start.sh"
 
-EXPECTED_NODE_PATH = str(Path.home() / ".npm-global" / "lib" / "node_modules" / "node" / "bin" / "node")
 EXPECTED_WEB_HEARTBEAT_SECONDS = 300
 EXPECTED_WEB_MESSAGE_TIMEOUT_MS = 24 * 60 * 60 * 1000
 EXPECTED_WEB_STANDBY_WARN_MINUTES = 24 * 60
@@ -41,15 +41,31 @@ EXPECTED_CHANNEL_HEALTH_CHECK_MINUTES = 5
 EXPECTED_AGENT_HEARTBEAT_EVERY = "0m"
 EXPECTED_GROUP_POLICY_FALLBACK = "open"
 GROUP_POLICY_CHANNELS = ("whatsapp", "telegram")
+WECOM_CHANNEL_ID = "wecom"
+WECOM_PLUGIN_ID = "wecom-openclaw-plugin"
+WECOM_PLUGIN_PACKAGE = "@wecom/wecom-openclaw-plugin"
 RESTART_COOLDOWN_SECONDS = 15 * 60
 MAX_RESTARTS_PER_HOUR = 6
 INCIDENT_LOOKBACK_MINUTES = 180
+MODEL_FAILURE_LOOKBACK_MINUTES = 20
+MODEL_FAILURE_PROMOTE_THRESHOLD = 3
+MODEL_RECOVERY_QUIET_MINUTES = 20
+MODEL_RECOVERY_PROBE_INTERVAL_MINUTES = 10
+MODEL_PROBE_AGENT_ID = "guardian-probe"
+MODEL_PROBE_MESSAGE = "Reply with OK only."
+MODEL_PROBE_TIMEOUT_SECONDS = 90
+MODEL_PROBE_WORKSPACE = Path(tempfile.gettempdir()) / "openclaw-guardian-probe"
 
 PATTERN_UNKNOWN_READ = "Unknown system error -11"
 PATTERN_ABNORMAL_CLOSE = "gateway closed (1006 abnormal closure"
 PATTERN_FETCH_FAILED = "TypeError: fetch failed"
 PATTERN_MAX_ATTEMPTS = "web reconnect: max attempts reached"
 PATTERN_STALE_SOCKET = "health-monitor: restarting (reason: stale-socket)"
+PATTERN_MODEL_OVERLOADED = "The AI service is temporarily overloaded"
+PATTERN_MODEL_HTTP_504 = "The AI service is temporarily unavailable (HTTP 504)"
+PATTERN_MODEL_FAILOVER = "FailoverError:"
+PATTERN_MODEL_BACKOFF = "overload backoff before failover for "
+PATTERN_MODEL_IMPROPER_400 = "400 Improperly formed request."
 
 RUNTIME_PATCH_GLOBS = (
     "channel-web-*.js",
@@ -67,6 +83,21 @@ RUNTIME_PATCH_GLOBS = (
 class IncidentSummary:
     counts: dict[str, int]
     latest: dict[str, str | None]
+
+
+@dataclass
+class ModelFailureEvent:
+    timestamp: str
+    kind: str
+    line: str
+    model: str | None = None
+
+
+@dataclass
+class ModelFailureSummary:
+    counts: dict[str, int]
+    latest: str | None
+    events: list[ModelFailureEvent]
 
 
 def ensure_parent(path: Path) -> None:
@@ -106,9 +137,15 @@ def run_command(
     check: bool = False,
     cwd: Path | None = ROOT_DIR,
 ) -> subprocess.CompletedProcess[str]:
+    argv = list(args)
+    if argv and Path(argv[0]).name == "openclaw":
+        try:
+            configure_openclaw(dry_run=False)
+        except Exception as exc:
+            return subprocess.CompletedProcess(argv, 1, "", f"config repair failed: {exc}")
     try:
         return subprocess.run(
-            list(args),
+            argv,
             cwd=str(cwd) if cwd else None,
             text=True,
             capture_output=True,
@@ -116,7 +153,7 @@ def run_command(
             check=check,
         )
     except (FileNotFoundError, PermissionError, subprocess.TimeoutExpired) as exc:
-        return subprocess.CompletedProcess(list(args), 1, "", str(exc))
+        return subprocess.CompletedProcess(argv, 1, "", str(exc))
 
 
 def load_json(path: Path, default):
@@ -155,6 +192,35 @@ def save_guardian_state(state: dict) -> None:
     save_json(GUARDIAN_STATE_FILE, state)
 
 
+def reset_model_failover_state(
+    state: dict,
+    *,
+    handled_at: str,
+    reason: str,
+    detail: str | None = None,
+) -> dict:
+    previous = state.get("model_failover")
+    if not isinstance(previous, dict):
+        previous = {}
+
+    payload = {
+        "active": False,
+        "handled_through_ts": handled_at,
+        "last_action": "state-reset",
+        "last_action_detail": detail or reason,
+        "last_reset_at": iso_now(),
+    }
+    baseline_primary = str(previous.get("baseline_primary") or "").strip()
+    promoted_primary = str(previous.get("promoted_primary") or "").strip()
+    if baseline_primary:
+        payload["previous_baseline_primary"] = baseline_primary
+    if promoted_primary:
+        payload["previous_promoted_primary"] = promoted_primary
+
+    state["model_failover"] = payload
+    return payload
+
+
 def prune_restart_times(times: Iterable[str], *, now: datetime) -> list[str]:
     kept: list[str] = []
     cutoff = now - timedelta(hours=1)
@@ -163,6 +229,84 @@ def prune_restart_times(times: Iterable[str], *, now: datetime) -> list[str]:
         if parsed and parsed >= cutoff:
             kept.append(parsed.isoformat())
     return kept
+
+
+def normalize_model_keys(model_id: str, provider: str | None = None) -> set[str]:
+    normalized: set[str] = set()
+    model = str(model_id or "").strip()
+    model_provider = str(provider or "").strip()
+    if not model:
+        return normalized
+    normalized.add(model)
+    if "/" in model:
+        normalized.add(model.split("/", 1)[1])
+    elif model_provider:
+        normalized.add(f"{model_provider}/{model}")
+    return normalized
+
+
+def session_store_path(agent_id: str) -> Path:
+    return OPENCLAW_HOME / "agents" / agent_id / "sessions" / "sessions.json"
+
+
+def prune_model_sessions(
+    *,
+    agent_id: str,
+    model_ids: Sequence[str],
+    older_than_hours: int,
+    dry_run: bool,
+) -> dict[str, object]:
+    store_path = session_store_path(agent_id)
+    store = load_json(store_path, {})
+    if not isinstance(store, dict):
+        raise ValueError(f"invalid session store: {store_path}")
+
+    cutoff_ms = int(time.time() * 1000) - (max(older_than_hours, 0) * 60 * 60 * 1000)
+    target_aliases: set[str] = set()
+    for model_id in model_ids:
+        target_aliases.update(normalize_model_keys(str(model_id)))
+
+    matched: list[dict[str, object]] = []
+    kept: dict[str, object] = {}
+    for key, value in store.items():
+        if not isinstance(value, dict):
+            kept[key] = value
+            continue
+
+        entry_aliases = normalize_model_keys(
+            str(value.get("model") or ""),
+            str(value.get("modelProvider") or ""),
+        )
+        updated_at = value.get("updatedAt")
+        updated_at_ms = updated_at if isinstance(updated_at, int) else 0
+        should_prune = bool(entry_aliases & target_aliases) and updated_at_ms <= cutoff_ms
+        if should_prune:
+            matched.append(
+                {
+                    "key": key,
+                    "sessionId": value.get("sessionId"),
+                    "updatedAt": updated_at,
+                    "model": value.get("model"),
+                    "modelProvider": value.get("modelProvider"),
+                }
+            )
+            continue
+
+        kept[key] = value
+
+    if not dry_run and len(kept) != len(store):
+        save_json(store_path, kept)
+
+    return {
+        "agentId": agent_id,
+        "storePath": str(store_path),
+        "beforeCount": len(store),
+        "afterCount": len(kept),
+        "olderThanHours": older_than_hours,
+        "modelIds": list(model_ids),
+        "pruned": matched,
+        "dryRun": dry_run,
+    }
 
 
 def replace_once(text: str, old: str, new: str, *, description: str) -> tuple[str, bool]:
@@ -235,6 +379,115 @@ def normalize_group_policy(payload: dict) -> list[str]:
         changed.append(channel)
 
     return changed
+
+
+def plugin_installed_in_config(payload: dict, plugin_id: str) -> bool:
+    installs = payload.get("plugins", {}).get("installs", {})
+    if not isinstance(installs, dict):
+        return False
+    install = installs.get(plugin_id)
+    return isinstance(install, dict)
+
+
+def merge_plugin_records(payload: dict, section: str, source_id: str, target_id: str) -> bool:
+    plugins = payload.get("plugins")
+    if not isinstance(plugins, dict):
+        return False
+
+    records = plugins.get(section)
+    if not isinstance(records, dict) or source_id not in records:
+        return False
+
+    source_record = records.get(source_id)
+    target_record = records.get(target_id)
+
+    if isinstance(source_record, dict):
+        merged = dict(source_record)
+        if isinstance(target_record, dict):
+            merged.update(target_record)
+        records[target_id] = merged
+    elif target_id not in records:
+        records[target_id] = source_record
+
+    if source_id != target_id:
+        del records[source_id]
+    return True
+
+
+def normalize_plugin_allowlist(payload: dict, *, should_enable_wecom: bool) -> bool:
+    plugins = payload.get("plugins")
+    if not isinstance(plugins, dict):
+        return False
+
+    allow = plugins.get("allow")
+    if not isinstance(allow, list):
+        return False
+
+    changed = False
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_item in allow:
+        item = str(raw_item).strip()
+        if not item:
+            changed = True
+            continue
+        if item == WECOM_CHANNEL_ID:
+            item = WECOM_PLUGIN_ID
+            changed = True
+        if item in seen:
+            changed = True
+            continue
+        seen.add(item)
+        normalized.append(item)
+
+    if should_enable_wecom and WECOM_PLUGIN_ID not in seen:
+        normalized.append(WECOM_PLUGIN_ID)
+        changed = True
+
+    if changed:
+        plugins["allow"] = normalized
+    return changed
+
+
+def normalize_wecom_plugin_config(payload: dict) -> list[str]:
+    changes: list[str] = []
+    channels = payload.get("channels")
+    wecom_channel = channels.get(WECOM_CHANNEL_ID) if isinstance(channels, dict) else None
+    has_wecom_channel = isinstance(wecom_channel, dict) and bool(wecom_channel.get("enabled"))
+
+    if merge_plugin_records(payload, "entries", WECOM_CHANNEL_ID, WECOM_PLUGIN_ID):
+        changes.append("plugins.entries")
+    if merge_plugin_records(payload, "installs", WECOM_CHANNEL_ID, WECOM_PLUGIN_ID):
+        changes.append("plugins.installs")
+
+    plugins = payload.get("plugins")
+    if isinstance(plugins, dict):
+        installs = plugins.get("installs")
+        if isinstance(installs, dict):
+            install = installs.get(WECOM_PLUGIN_ID)
+            if isinstance(install, dict):
+                if install.get("resolvedName") != WECOM_PLUGIN_PACKAGE:
+                    install["resolvedName"] = WECOM_PLUGIN_PACKAGE
+                    changes.append("plugins.installs.resolvedName")
+                if install.get("resolvedSpec") != f"{WECOM_PLUGIN_PACKAGE}@{install.get('version')}" and install.get("version"):
+                    install["resolvedSpec"] = f"{WECOM_PLUGIN_PACKAGE}@{install.get('version')}"
+                    changes.append("plugins.installs.resolvedSpec")
+
+        entries = plugins.get("entries")
+        if isinstance(entries, dict):
+            wecom_entry = entries.get(WECOM_PLUGIN_ID)
+            if has_wecom_channel and not isinstance(wecom_entry, dict):
+                entries[WECOM_PLUGIN_ID] = {"enabled": True}
+                changes.append("plugins.entries.enable-wecom")
+            elif has_wecom_channel and isinstance(wecom_entry, dict) and wecom_entry.get("enabled") is not True:
+                wecom_entry["enabled"] = True
+                changes.append("plugins.entries.enabled")
+
+    should_enable_wecom = has_wecom_channel or plugin_installed_in_config(payload, WECOM_PLUGIN_ID)
+    if normalize_plugin_allowlist(payload, should_enable_wecom=should_enable_wecom):
+        changes.append("plugins.allow")
+
+    return changes
 
 
 def patch_text(path: Path, text: str) -> tuple[str, bool]:
@@ -314,11 +567,13 @@ def configure_openclaw(*, dry_run: bool) -> dict:
     payload = load_json(OPENCLAW_CONFIG, {})
     if not isinstance(payload, dict):
         raise ValueError(f"invalid config: {OPENCLAW_CONFIG}")
+    original = json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
     deep_set(payload, ["agents", "defaults", "heartbeat", "every"], EXPECTED_AGENT_HEARTBEAT_EVERY)
     deep_set(payload, ["web", "heartbeatSeconds"], EXPECTED_WEB_HEARTBEAT_SECONDS)
     deep_set(payload, ["gateway", "channelHealthCheckMinutes"], EXPECTED_CHANNEL_HEALTH_CHECK_MINUTES)
     normalize_group_policy(payload)
+    normalize_wecom_plugin_config(payload)
 
     # Keep config compatible across OpenClaw releases: never persist these
     # optional tuning keys because unsupported versions reject them as invalid.
@@ -326,7 +581,7 @@ def configure_openclaw(*, dry_run: bool) -> dict:
     deep_delete(payload, ["web", "watchdogCheckMs"])
     deep_delete(payload, ["gateway", "channelHealth"])
 
-    if not dry_run:
+    if not dry_run and json.dumps(payload, ensure_ascii=False, sort_keys=True) != original:
         backup_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup_dir = OPENCLAW_BACKUP_DIR / backup_stamp
         backup_dir.mkdir(parents=True, exist_ok=True)
@@ -406,6 +661,13 @@ def tail_lines(path: Path, *, max_lines: int = 800) -> list[str]:
         return list(deque(handle, maxlen=max_lines))
 
 
+def extract_backoff_model(line: str) -> str | None:
+    match = re.search(r"overload backoff before failover for ([^:\"]+)", line)
+    if not match:
+        return None
+    return match.group(1).strip() or None
+
+
 def collect_recent_incidents(paths: Iterable[Path], *, lookback_minutes: int) -> IncidentSummary:
     cutoff = now_utc() - timedelta(minutes=lookback_minutes)
     counts = {
@@ -446,6 +708,126 @@ def collect_recent_incidents(paths: Iterable[Path], *, lookback_minutes: int) ->
     return IncidentSummary(counts=counts, latest=latest)
 
 
+def collect_recent_model_failures(paths: Iterable[Path], *, lookback_minutes: int) -> ModelFailureSummary:
+    cutoff = now_utc() - timedelta(minutes=lookback_minutes)
+    counts = {
+        "overloaded": 0,
+        "http_504": 0,
+        "failover_error": 0,
+        "backoff": 0,
+        "improper_400": 0,
+    }
+    events: list[ModelFailureEvent] = []
+
+    for path in paths:
+        for raw_line in tail_lines(path):
+            line = raw_line.strip()
+            if not line:
+                continue
+            timestamp = extract_line_timestamp(line)
+            if timestamp is None or timestamp < cutoff:
+                continue
+
+            kind: str | None = None
+            model: str | None = None
+            if PATTERN_MODEL_BACKOFF in line:
+                kind = "backoff"
+                model = extract_backoff_model(line)
+            elif PATTERN_MODEL_IMPROPER_400 in line:
+                kind = "improper_400"
+            elif PATTERN_MODEL_HTTP_504 in line:
+                kind = "http_504"
+            elif PATTERN_MODEL_FAILOVER in line:
+                kind = "failover_error"
+            elif PATTERN_MODEL_OVERLOADED in line:
+                kind = "overloaded"
+            else:
+                continue
+
+            counts[kind] += 1
+            events.append(
+                ModelFailureEvent(
+                    timestamp=timestamp.isoformat(),
+                    kind=kind,
+                    model=model,
+                    line=line[:240],
+                )
+            )
+
+    latest = max((event.timestamp for event in events), default=None)
+    return ModelFailureSummary(counts=counts, latest=latest, events=events)
+
+
+def count_model_events_after(summary: ModelFailureSummary, handled_after: datetime | None) -> int:
+    total = 0
+    for event in summary.events:
+        timestamp = parse_iso(event.timestamp)
+        if timestamp is None:
+            continue
+        if handled_after is None or timestamp > handled_after:
+            total += 1
+    return total
+
+
+def normalize_fallback_chain(primary: str, fallbacks: Sequence[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_model in fallbacks:
+        model = str(raw_model).strip()
+        if not model or model == primary or model in seen:
+            continue
+        seen.add(model)
+        normalized.append(model)
+    return normalized
+
+
+def model_identity_matches(expected: str, actual: str) -> bool:
+    expected_model = str(expected).strip()
+    actual_model = str(actual).strip()
+    if not expected_model or not actual_model:
+        return False
+    if expected_model == actual_model:
+        return True
+    if "/" in expected_model and "/" not in actual_model:
+        return expected_model.split("/", 1)[1] == actual_model
+    if "/" not in expected_model and "/" in actual_model:
+        return expected_model == actual_model.split("/", 1)[1]
+    return False
+
+
+def compute_promoted_routing(primary: str, fallbacks: Sequence[str]) -> tuple[str, list[str]] | None:
+    normalized = normalize_fallback_chain(primary, fallbacks)
+    if not normalized:
+        return None
+    promoted_primary = normalized[0]
+    promoted_fallbacks = normalize_fallback_chain(
+        promoted_primary,
+        [primary, *normalized[1:]],
+    )
+    return promoted_primary, promoted_fallbacks
+
+
+def describe_model_failures(summary: ModelFailureSummary, *, handled_after: datetime | None) -> str:
+    counts: dict[str, int] = {}
+    for event in summary.events:
+        timestamp = parse_iso(event.timestamp)
+        if timestamp is None:
+            continue
+        if handled_after is not None and timestamp <= handled_after:
+            continue
+        counts[event.kind] = counts.get(event.kind, 0) + 1
+
+    if not counts:
+        return "none"
+
+    parts = []
+    for key in ("overloaded", "http_504", "failover_error", "backoff", "improper_400"):
+        value = counts.get(key, 0)
+        if value:
+            parts.append(f"{key}={value}")
+    return ", ".join(parts)
+
+
 def is_listener_up() -> bool:
     try:
         with socket.create_connection(("127.0.0.1", 18789), timeout=2):
@@ -454,12 +836,45 @@ def is_listener_up() -> bool:
         return False
 
 
-def is_launchagent_node22() -> bool:
+def is_node22_binary(node_path: str | None) -> bool:
+    if not node_path:
+        return False
+    try:
+        result = subprocess.run(
+            [node_path, "-v"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    version = (result.stdout or result.stderr or "").strip()
+    return result.returncode == 0 and bool(re.match(r"^v22\.", version))
+
+
+def launchagent_node_path() -> str | None:
     plist = Path.home() / "Library" / "LaunchAgents" / "ai.openclaw.gateway.plist"
     if not plist.exists():
-        return False
-    content = plist.read_text(encoding="utf-8", errors="replace")
-    return EXPECTED_NODE_PATH in content
+        return None
+    try:
+        with plist.open("rb") as handle:
+            payload = plistlib.load(handle)
+    except Exception:
+        content = plist.read_text(encoding="utf-8", errors="replace")
+        match = re.search(r"<string>([^<]*/node(?:@22)?/bin/node|[^<]*/node)</string>", content)
+        return match.group(1) if match else None
+
+    argv = payload.get("ProgramArguments")
+    if isinstance(argv, list) and argv:
+        first = argv[0]
+        if isinstance(first, str):
+            return first
+    return None
+
+
+def is_launchagent_node22() -> bool:
+    return is_node22_binary(launchagent_node_path())
 
 
 def load_openclaw_status() -> str:
@@ -482,6 +897,408 @@ def latest_incident_after(summary: IncidentSummary, handled_after: datetime | No
     if handled_after is None:
         return True
     return latest > handled_after
+
+
+def load_model_routing() -> dict[str, object]:
+    result = run_command(["openclaw", "config", "get", "agents.defaults.model"], timeout=30)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "openclaw config get failed")
+
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"invalid model routing JSON: {exc}") from exc
+
+    primary = str(payload.get("primary") or "").strip()
+    if not primary:
+        raise RuntimeError("agents.defaults.model.primary is empty")
+
+    fallbacks = normalize_fallback_chain(primary, payload.get("fallbacks") or [])
+    return {"primary": primary, "fallbacks": fallbacks}
+
+
+def set_model_routing(primary: str, fallbacks: Sequence[str]) -> tuple[bool, str]:
+    desired_fallbacks = normalize_fallback_chain(primary, fallbacks)
+    current = load_model_routing()
+    current_primary = str(current["primary"])
+    current_fallbacks = normalize_fallback_chain(current_primary, current.get("fallbacks") or [])
+
+    if current_primary != primary:
+        result = run_command(["openclaw", "models", "set", primary], timeout=60)
+        if result.returncode != 0:
+            return False, result.stderr.strip() or result.stdout.strip() or "openclaw models set failed"
+
+    if current_fallbacks != desired_fallbacks:
+        result = run_command(["openclaw", "models", "fallbacks", "clear"], timeout=60)
+        if result.returncode != 0:
+            return False, result.stderr.strip() or result.stdout.strip() or "openclaw models fallbacks clear failed"
+        for model in desired_fallbacks:
+            add_result = run_command(["openclaw", "models", "fallbacks", "add", model], timeout=60)
+            if add_result.returncode != 0:
+                return False, add_result.stderr.strip() or add_result.stdout.strip() or f"failed to add fallback {model}"
+
+    return True, "updated"
+
+
+def cleanup_probe_agent() -> None:
+    run_command(
+        ["openclaw", "agents", "delete", "--force", "--json", MODEL_PROBE_AGENT_ID],
+        timeout=60,
+    )
+
+
+def probe_model_with_agent(model_id: str) -> tuple[bool, str]:
+    MODEL_PROBE_WORKSPACE.mkdir(parents=True, exist_ok=True)
+    cleanup_probe_agent()
+
+    add_result = run_command(
+        [
+            "openclaw",
+            "agents",
+            "add",
+            MODEL_PROBE_AGENT_ID,
+            "--workspace",
+            str(MODEL_PROBE_WORKSPACE),
+            "--model",
+            model_id,
+            "--non-interactive",
+            "--json",
+        ],
+        timeout=60,
+    )
+    if add_result.returncode != 0:
+        return False, add_result.stderr.strip() or add_result.stdout.strip() or "probe agent create failed"
+
+    session_id = f"{MODEL_PROBE_AGENT_ID}-{int(time.time())}"
+    probe_result = run_command(
+        [
+            "openclaw",
+            "agent",
+            "--agent",
+            MODEL_PROBE_AGENT_ID,
+            "--session-id",
+            session_id,
+            "--message",
+            MODEL_PROBE_MESSAGE,
+            "--timeout",
+            str(MODEL_PROBE_TIMEOUT_SECONDS),
+            "--json",
+        ],
+        timeout=MODEL_PROBE_TIMEOUT_SECONDS + 45,
+        cwd=MODEL_PROBE_WORKSPACE,
+    )
+    cleanup_probe_agent()
+
+    if probe_result.returncode != 0:
+        return False, probe_result.stderr.strip() or probe_result.stdout.strip() or "probe run failed"
+
+    try:
+        payload = json.loads(probe_result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return False, f"probe returned invalid JSON: {exc}"
+
+    status = str(payload.get("status") or "").strip()
+    agent_meta = payload.get("result", {}).get("meta", {}).get("agentMeta", {})
+    actual_model = str(agent_meta.get("model") or "").strip()
+    if status != "ok":
+        return False, str(payload.get("summary") or payload.get("error") or "probe status not ok")
+    if not model_identity_matches(model_id, actual_model):
+        return False, f"probe used unexpected model: {actual_model or 'unknown'}"
+    return True, f"probe ok via {actual_model}"
+
+
+def record_restart_state(state: dict, *, now: datetime, reasons: Sequence[str], handled_mark: datetime | None = None) -> None:
+    recent_restarts = prune_restart_times(state.get("restart_times", []), now=now)
+    recent_restarts.append(now.isoformat())
+    state["restart_times"] = recent_restarts
+    state["last_restart_at"] = now.isoformat()
+    state["last_reasons"] = list(reasons)
+    if handled_mark is not None:
+        state["handled_through_ts"] = handled_mark.isoformat()
+
+
+def handle_model_failover(*, state: dict, dry_run: bool, verbose: bool) -> tuple[bool, int, dict]:
+    routing = load_model_routing()
+    current_primary = str(routing["primary"])
+    current_fallbacks = normalize_fallback_chain(current_primary, routing.get("fallbacks") or [])
+    summary = collect_recent_model_failures(recent_log_paths(), lookback_minutes=MODEL_FAILURE_LOOKBACK_MINUTES)
+    model_state = state.get("model_failover")
+    if not isinstance(model_state, dict):
+        model_state = {}
+    state["model_failover"] = model_state
+    now = now_utc()
+
+    active = bool(model_state.get("active"))
+    if not active:
+        handled_after = parse_iso(model_state.get("handled_through_ts"))
+        recent_failures = count_model_events_after(summary, handled_after)
+        if recent_failures < MODEL_FAILURE_PROMOTE_THRESHOLD:
+            return False, 0, {
+                "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+                "recent_failures": recent_failures,
+                "recent_counts": summary.counts,
+                "latest_failure": summary.latest,
+                "active": False,
+            }
+
+        promoted = compute_promoted_routing(current_primary, current_fallbacks)
+        if promoted is None:
+            model_state["handled_through_ts"] = summary.latest or now.isoformat()
+            log_line("guardian model failover: primary unhealthy but no fallback configured", also_stdout=verbose)
+            return False, 0, {
+                "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+                "recent_failures": recent_failures,
+                "recent_counts": summary.counts,
+                "latest_failure": summary.latest,
+                "active": False,
+            }
+
+        promoted_primary, promoted_fallbacks = promoted
+        failure_detail = describe_model_failures(summary, handled_after=handled_after)
+        if dry_run:
+            log_line(
+                f"guardian model failover: would promote {promoted_primary} over {current_primary} ({failure_detail})",
+                also_stdout=verbose,
+            )
+            return True, 0, {
+                "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+                "promotion_target": {"primary": promoted_primary, "fallbacks": promoted_fallbacks},
+                "recent_failures": recent_failures,
+                "recent_counts": summary.counts,
+                "latest_failure": summary.latest,
+                "active": False,
+                "dry_run": True,
+            }
+
+        ok, detail = set_model_routing(promoted_primary, promoted_fallbacks)
+        if not ok:
+            model_state["last_action"] = "promote-failed"
+            model_state["last_action_detail"] = detail
+            log_line(
+                f"guardian model failover: failed to promote {promoted_primary} over {current_primary}: {detail}",
+                also_stdout=verbose,
+            )
+            return True, 1, {
+                "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+                "promotion_target": {"primary": promoted_primary, "fallbacks": promoted_fallbacks},
+                "recent_failures": recent_failures,
+                "recent_counts": summary.counts,
+                "latest_failure": summary.latest,
+                "active": False,
+                "error": detail,
+            }
+
+        model_state.update(
+            {
+                "active": True,
+                "baseline_primary": current_primary,
+                "baseline_fallbacks": current_fallbacks,
+                "promoted_primary": promoted_primary,
+                "promoted_fallbacks": promoted_fallbacks,
+                "promoted_at": now.isoformat(),
+                "last_failure_at": summary.latest or now.isoformat(),
+                "handled_through_ts": summary.latest or now.isoformat(),
+                "last_probe_at": None,
+                "last_probe_result": None,
+                "last_action": "promote",
+                "last_action_detail": failure_detail,
+            }
+        )
+        restart_ok = stable_restart(verbose=verbose)
+        if restart_ok:
+            handled_mark = now_utc()
+            record_restart_state(state, now=now, reasons=["model-primary-promoted"], handled_mark=handled_mark)
+            model_state["handled_through_ts"] = handled_mark.isoformat()
+            log_line(
+                f"guardian model failover: promoted {promoted_primary} over {current_primary} and restarted gateway",
+                also_stdout=verbose,
+            )
+            return True, 0, {
+                "routing": {"primary": promoted_primary, "fallbacks": promoted_fallbacks},
+                "recent_failures": recent_failures,
+                "recent_counts": summary.counts,
+                "latest_failure": summary.latest,
+                "active": True,
+            }
+
+        record_restart_state(state, now=now, reasons=["model-primary-promoted"])
+        log_line(
+            f"guardian model failover: promoted {promoted_primary} over {current_primary} but restart failed",
+            also_stdout=verbose,
+        )
+        return True, 1, {
+            "routing": {"primary": promoted_primary, "fallbacks": promoted_fallbacks},
+            "recent_failures": recent_failures,
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": True,
+        }
+
+    promoted_primary = str(model_state.get("promoted_primary") or "").strip()
+    baseline_primary = str(model_state.get("baseline_primary") or "").strip()
+    baseline_fallbacks = normalize_fallback_chain(baseline_primary, model_state.get("baseline_fallbacks") or [])
+    if not promoted_primary or current_primary != promoted_primary:
+        reset_model_failover_state(
+            state,
+            handled_at=summary.latest or now.isoformat(),
+            reason="routing-drift",
+        )
+        log_line("guardian model failover: routing drift detected; clearing promotion state", also_stdout=verbose)
+        return False, 0, {
+            "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": False,
+        }
+
+    if baseline_primary and baseline_primary != current_primary and baseline_primary not in current_fallbacks:
+        reset_model_failover_state(
+            state,
+            handled_at=summary.latest or now.isoformat(),
+            reason="baseline-removed-from-routing",
+        )
+        log_line(
+            f"guardian model failover: baseline {baseline_primary} no longer in current routing; clearing promotion state",
+            also_stdout=verbose,
+        )
+        return False, 0, {
+            "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": False,
+        }
+
+    latest_failure = parse_iso(model_state.get("last_failure_at"))
+    summary_latest = parse_iso(summary.latest)
+    if summary_latest is not None and (latest_failure is None or summary_latest > latest_failure):
+        latest_failure = summary_latest
+        model_state["last_failure_at"] = summary_latest.isoformat()
+
+    quiet_since = latest_failure or parse_iso(model_state.get("promoted_at")) or now
+    last_probe_at = parse_iso(model_state.get("last_probe_at"))
+    if (now - quiet_since) < timedelta(minutes=MODEL_RECOVERY_QUIET_MINUTES):
+        return False, 0, {
+            "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": True,
+            "quiet_for_minutes": int((now - quiet_since).total_seconds() // 60),
+        }
+
+    if last_probe_at is not None and (now - last_probe_at) < timedelta(minutes=MODEL_RECOVERY_PROBE_INTERVAL_MINUTES):
+        return False, 0, {
+            "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": True,
+            "last_probe_at": last_probe_at.isoformat(),
+        }
+
+    if not baseline_primary:
+        reset_model_failover_state(
+            state,
+            handled_at=now.isoformat(),
+            reason="missing-baseline",
+        )
+        log_line("guardian model failover: missing baseline primary; clearing promotion state", also_stdout=verbose)
+        return False, 0, {
+            "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": False,
+        }
+
+    if dry_run:
+        log_line(f"guardian model failover: would probe {baseline_primary} for recovery", also_stdout=verbose)
+        return True, 0, {
+            "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+            "recovery_target": {"primary": baseline_primary, "fallbacks": baseline_fallbacks},
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": True,
+            "dry_run": True,
+        }
+
+    probe_ok, probe_detail = probe_model_with_agent(baseline_primary)
+    model_state["last_probe_at"] = now.isoformat()
+    model_state["last_probe_result"] = probe_detail
+    if not probe_ok:
+        model_state["last_failure_at"] = now.isoformat()
+        model_state["last_action"] = "probe-failed"
+        model_state["last_action_detail"] = probe_detail
+        log_line(
+            f"guardian model failover: recovery probe failed for {baseline_primary}: {probe_detail}",
+            also_stdout=verbose,
+        )
+        return True, 0, {
+            "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+            "recovery_target": {"primary": baseline_primary, "fallbacks": baseline_fallbacks},
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": True,
+            "probe_result": probe_detail,
+        }
+
+    ok, detail = set_model_routing(baseline_primary, baseline_fallbacks)
+    if not ok:
+        model_state["last_action"] = "restore-failed"
+        model_state["last_action_detail"] = detail
+        log_line(
+            f"guardian model failover: probe succeeded but restore failed for {baseline_primary}: {detail}",
+            also_stdout=verbose,
+        )
+        return True, 1, {
+            "routing": {"primary": current_primary, "fallbacks": current_fallbacks},
+            "recovery_target": {"primary": baseline_primary, "fallbacks": baseline_fallbacks},
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": True,
+            "error": detail,
+        }
+
+    restart_ok = stable_restart(verbose=verbose)
+    handled_mark = now_utc()
+    if restart_ok:
+        record_restart_state(state, now=now, reasons=["model-primary-restored"], handled_mark=handled_mark)
+    else:
+        record_restart_state(state, now=now, reasons=["model-primary-restored"])
+    state["model_failover"] = {
+        "active": False,
+        "handled_through_ts": handled_mark.isoformat(),
+        "baseline_primary": baseline_primary,
+        "baseline_fallbacks": baseline_fallbacks,
+        "last_failure_at": model_state.get("last_failure_at"),
+        "last_probe_at": now.isoformat(),
+        "last_probe_result": probe_detail,
+        "last_action": "restore",
+        "last_action_detail": probe_detail,
+        "last_restored_at": now.isoformat(),
+        "previous_promoted_primary": promoted_primary,
+    }
+    if restart_ok:
+        log_line(
+            f"guardian model failover: restored {baseline_primary} after successful probe and restarted gateway",
+            also_stdout=verbose,
+        )
+        return True, 0, {
+            "routing": {"primary": baseline_primary, "fallbacks": baseline_fallbacks},
+            "recent_counts": summary.counts,
+            "latest_failure": summary.latest,
+            "active": False,
+            "probe_result": probe_detail,
+        }
+
+    log_line(
+        f"guardian model failover: restored {baseline_primary} but restart failed",
+        also_stdout=verbose,
+    )
+    return True, 1, {
+        "routing": {"primary": baseline_primary, "fallbacks": baseline_fallbacks},
+        "recent_counts": summary.counts,
+        "latest_failure": summary.latest,
+        "active": False,
+        "probe_result": probe_detail,
+    }
 
 
 def stable_restart(*, verbose: bool) -> bool:
@@ -513,12 +1330,22 @@ def stable_restart(*, verbose: bool) -> bool:
 def guardian_status_payload() -> dict:
     status_output = load_openclaw_status()
     incidents = collect_recent_incidents(recent_log_paths(), lookback_minutes=INCIDENT_LOOKBACK_MINUTES)
+    model_failures = collect_recent_model_failures(recent_log_paths(), lookback_minutes=MODEL_FAILURE_LOOKBACK_MINUTES)
+    try:
+        model_routing = load_model_routing()
+    except RuntimeError as exc:
+        model_routing = {"error": str(exc)}
+    state = load_guardian_state()
     return {
         "listener_up": is_listener_up(),
         "launchagent_node22": is_launchagent_node22(),
         "whatsapp_linked": whatsapp_linked(status_output),
         "incident_counts": incidents.counts,
         "incident_latest": incidents.latest,
+        "model_routing": model_routing,
+        "model_failover": state.get("model_failover", {}),
+        "model_failure_counts": model_failures.counts,
+        "model_failure_latest": model_failures.latest,
         "state_file": str(GUARDIAN_STATE_FILE),
         "guardian_log": str(GUARDIAN_LOG_FILE),
     }
@@ -531,6 +1358,13 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
     handled_after = parse_iso(state.get("handled_through_ts"))
     incidents = collect_recent_incidents(recent_log_paths(), lookback_minutes=INCIDENT_LOOKBACK_MINUTES)
     status_output = load_openclaw_status()
+    try:
+        model_handled, model_code, model_payload = handle_model_failover(state=state, dry_run=dry_run, verbose=verbose)
+    except RuntimeError as exc:
+        model_handled = False
+        model_code = 1
+        model_payload = {"error": str(exc)}
+        log_line(f"guardian model failover: skipped due to runtime error: {exc}", also_stdout=verbose)
 
     reasons: list[str] = []
     if force_restart:
@@ -558,12 +1392,18 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
         "whatsapp_linked": whatsapp_linked(status_output),
         "reasons": reasons,
         "incident_counts": incidents.counts,
+        "model": model_payload,
     }
     if verbose:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
 
+    if model_handled:
+        save_guardian_state(state)
+        return model_code
+
     if not reasons:
         log_line("guardian check: healthy")
+        save_guardian_state(state)
         return 0
 
     last_restart_at = parse_iso(state.get("last_restart_at"))
@@ -581,22 +1421,16 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
 
     if dry_run:
         log_line(f"guardian check: would restart for {', '.join(reasons)}", also_stdout=verbose)
+        save_guardian_state(state)
         return 0
 
     if not stable_restart(verbose=verbose):
-        recent_restarts.append(now.isoformat())
-        state["restart_times"] = recent_restarts
-        state["last_restart_at"] = now.isoformat()
-        state["last_reasons"] = reasons
+        record_restart_state(state, now=now, reasons=reasons)
         save_guardian_state(state)
         return 1
 
     handled_mark = now_utc()
-    recent_restarts.append(now.isoformat())
-    state["restart_times"] = recent_restarts
-    state["last_restart_at"] = now.isoformat()
-    state["handled_through_ts"] = handled_mark.isoformat()
-    state["last_reasons"] = reasons
+    record_restart_state(state, now=now, reasons=reasons, handled_mark=handled_mark)
     save_guardian_state(state)
     log_line(f"guardian check: recovered for {', '.join(reasons)}", also_stdout=verbose)
     return 0
@@ -624,12 +1458,70 @@ await processForRoute(msg, route, groupHistoryKey);
     assert changed_channels == ["whatsapp"]
     assert sample_channels["channels"]["whatsapp"]["groupPolicy"] == "open"
 
+    sample_plugins = {
+        "channels": {
+            "wecom": {"enabled": True}
+        },
+        "plugins": {
+            "allow": ["telegram", "wecom", "whatsapp"],
+            "entries": {"wecom": {"enabled": True}},
+            "installs": {"wecom": {"version": "1.0.11", "resolvedName": "@wecom/wecom-openclaw-plugin"}}
+        }
+    }
+    normalize_wecom_plugin_config(sample_plugins)
+    assert sample_plugins["plugins"]["allow"] == ["telegram", "wecom-openclaw-plugin", "whatsapp"]
+    assert "wecom" not in sample_plugins["plugins"]["entries"]
+    assert "wecom-openclaw-plugin" in sample_plugins["plugins"]["entries"]
+    assert "wecom" not in sample_plugins["plugins"]["installs"]
+    assert "wecom-openclaw-plugin" in sample_plugins["plugins"]["installs"]
+
     config = {}
     with tempfile.TemporaryDirectory() as tmp:
         tmp_config = Path(tmp) / "openclaw.json"
         save_json(tmp_config, config)
     summary = collect_recent_incidents([], lookback_minutes=5)
     assert summary.counts["unknown_read"] == 0
+    assert normalize_fallback_chain("primary", ["", "primary", "backup", "backup", "secondary"]) == ["backup", "secondary"]
+    assert model_identity_matches("api123/claude-sonnet-4-6", "claude-sonnet-4-6")
+    assert not model_identity_matches("api123/claude-sonnet-4-6", "openai/gpt-5")
+    assert normalize_model_keys("claude-sonnet-4-6", "api123") == {"claude-sonnet-4-6", "api123/claude-sonnet-4-6"}
+    assert normalize_model_keys("api123/claude-sonnet-4-6") == {"api123/claude-sonnet-4-6", "claude-sonnet-4-6"}
+    reset_sample = {
+        "model_failover": {
+            "active": True,
+            "baseline_primary": "api123/claude-sonnet-4-6",
+            "promoted_primary": "openai-codex/gpt-5.4",
+        }
+    }
+    reset_payload = reset_model_failover_state(reset_sample, handled_at="2026-03-15T00:00:00+00:00", reason="manual-reset")
+    assert reset_payload["active"] is False
+    assert reset_payload["previous_baseline_primary"] == "api123/claude-sonnet-4-6"
+    assert reset_payload["previous_promoted_primary"] == "openai-codex/gpt-5.4"
+    assert compute_promoted_routing(
+        "api123/claude-sonnet-4-6",
+        ["openai-codex/gpt-5.4", "openai-codex/gpt-5.3-codex"],
+    ) == (
+        "openai-codex/gpt-5.4",
+        ["api123/claude-sonnet-4-6", "openai-codex/gpt-5.3-codex"],
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        model_log = Path(tmp) / "model.log"
+        model_log.write_text(
+            '\n'.join(
+                [
+                    '{"1":"overload backoff before failover for api123/claude-sonnet-4-6: attempt=1 delayMs=263","time":"2026-03-12T15:53:05.867+00:00"}',
+                    '{"1":"lane task error: lane=main durationMs=24167 error=\\"FailoverError: The AI service is temporarily unavailable (HTTP 504). Please try again in a moment.\\"","time":"2026-03-12T15:53:06.139+00:00"}',
+                    '{"1":"embedded run agent end: runId=abc isError=true error=400 Improperly formed request. (request id: foo)","time":"2026-03-12T15:53:07.139+00:00"}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        model_summary = collect_recent_model_failures([model_log], lookback_minutes=10_000)
+        assert model_summary.counts["backoff"] == 1
+        assert model_summary.counts["http_504"] == 1
+        assert model_summary.counts["improper_400"] == 1
+        assert model_summary.latest is not None
     print("guardian self-test: ok")
     return 0
 
@@ -647,6 +1539,13 @@ def main() -> int:
     subparsers.add_parser("render-plist", help="Print launchd plist")
     subparsers.add_parser("status", help="Print guardian status JSON")
     subparsers.add_parser("self-test", help="Run local self-test")
+    reset_failover_cmd = subparsers.add_parser("reset-model-failover", help="Clear persisted model failover state")
+    reset_failover_cmd.add_argument("--reason", default="manual-reset")
+    prune_sessions_cmd = subparsers.add_parser("prune-model-sessions", help="Remove stale session-store entries for retired models")
+    prune_sessions_cmd.add_argument("--agent", default="main")
+    prune_sessions_cmd.add_argument("--model", action="append", required=True)
+    prune_sessions_cmd.add_argument("--older-than-hours", type=int, default=24)
+    prune_sessions_cmd.add_argument("--dry-run", action="store_true")
 
     check_cmd = subparsers.add_parser("check-once", help="Run one self-heal check")
     check_cmd.add_argument("--dry-run", action="store_true")
@@ -690,6 +1589,27 @@ def main() -> int:
 
     if args.command == "self-test":
         return self_test()
+
+    if args.command == "reset-model-failover":
+        state = load_guardian_state()
+        payload = reset_model_failover_state(
+            state,
+            handled_at=iso_now(),
+            reason=str(args.reason or "manual-reset"),
+        )
+        save_guardian_state(state)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "prune-model-sessions":
+        payload = prune_model_sessions(
+            agent_id=str(args.agent or "main"),
+            model_ids=args.model,
+            older_than_hours=int(args.older_than_hours or 24),
+            dry_run=bool(args.dry_run),
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
 
     if args.command == "check-once":
         return check_once(

@@ -77,7 +77,7 @@ bash scripts/security_baseline.sh fix
 ### 已落地的低侵入安全增强
 - 移除 `scripts/activate_agent_tools.sh` 中的 `eval` 直接执行路径（保留兼容 `--run`）。
 - `scripts/xiaohongshu_send_setup.sh` 增加 `umask 077`、关键目录/文件权限收敛、端口与布尔参数校验。
-- `小红书笔记技能包/scripts/render_xhs_v2.js` 将 YAML 解析收敛到 `JSON_SCHEMA`。
+- `skills/小红书笔记技能包/scripts/render_xhs_v2.js` 将 YAML 解析收敛到 `JSON_SCHEMA`。
 - `scripts/wechat_draft.py` 不再输出 token 片段，避免凭证侧漏。
 - `scripts/doctor.sh` 新增安全基线检查步骤，统一纳入体检流程。
 
@@ -134,7 +134,7 @@ openclaw agent --message "按 Multi Source Tech News Digest + Auto-Redbook-Skill
 ```bash
 # 1. 内容创作 → 生成Markdown文件
 # 2. 渲染卡片
-python3 小红书笔记技能包/scripts/render_xhs.py content.md -t playful-geometric -m separator -o output/
+python3 skills/小红书笔记技能包/scripts/render_xhs.py content.md -t playful-geometric -m separator -o output/
 
 # 3. 发布验证
 bash scripts/xiaohongshu_send_setup.sh start --port 18060 --headless true
@@ -225,7 +225,7 @@ python3 scripts/xiaohongshu_send.py publish --dry-run --payload payload.json --b
 - X 抓取主链路已切换：`xreach`（由 Agent Reach 路线承接），不再依赖 x-reader 抓 X  
 - 小红书“已登录但不可用”的常见根因是会话隔离：`x-reader` 与 `xiaohongshu-send` 登录态不共享  
 - 小红书登录已做持久化根治：统一 `COOKIES_PATH`，并把 `/tmp/cookies.json` 固定链接到工作区 cookies，避免会话漂移  
-- 小红书浏览器 profile 已固定到 `xiaohongshu-send/profile`（`rod dir`），重启后优先复用同一会话  
+- 小红书浏览器 profile 已固定到 `skills/xiaohongshu-send/profile`（`rod dir`），重启后优先复用同一会话  
 - 公众号推送报 `40164 invalid ip` 时，先加微信后台 IP 白名单再重试  
 - 先做登录态/环境预检，再抓取与发布，可显著减少卡顿与失败重跑  
 - MCP服务在 `~/xhs_workspace`（无中文路径，避免崩溃）

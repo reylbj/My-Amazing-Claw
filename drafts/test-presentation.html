@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontend Slides 验收演示</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* ===========================================
+           VIEWPORT FITTING: MANDATORY BASE STYLES
+           =========================================== */
+        html, body {
+            height: 100%;
+            overflow-x: hidden;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-snap-type: y mandatory;
+            scroll-behavior: smooth;
+        }
+
+        .slide {
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            scroll-snap-align: start;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .slide-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            max-height: 100%;
+            overflow: hidden;
+            padding: var(--slide-padding);
+        }
+
+        :root {
+            --title-size: clamp(1.5rem, 5vw, 4rem);
+            --h2-size: clamp(1.25rem, 3.5vw, 2.5rem);
+            --h3-size: clamp(1rem, 2.5vw, 1.75rem);
+            --body-size: clamp(0.75rem, 1.5vw, 1.125rem);
+            --small-size: clamp(0.65rem, 1vw, 0.875rem);
+            --slide-padding: clamp(1rem, 4vw, 4rem);
+            --content-gap: clamp(0.5rem, 2vw, 2rem);
+            --element-gap: clamp(0.25rem, 1vw, 1rem);
+        }
+
+        @media (max-height: 700px) {
+            :root {
+                --slide-padding: clamp(0.75rem, 3vw, 2rem);
+                --content-gap: clamp(0.4rem, 1.5vw, 1rem);
+                --title-size: clamp(1.25rem, 4.5vw, 2.5rem);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.2s !important;
+            }
+            html {
+                scroll-behavior: auto;
+            }
+        }
+
+        /* ===========================================
+           BOLD SIGNAL THEME
+           =========================================== */
+        :root {
+            --bg-primary: #1a1a1a;
+            --bg-gradient: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 50%, #1a1a1a 100%);
+            --card-bg: #FF5722;
+            --text-primary: #ffffff;
+            --text-on-card: #1a1a1a;
+            --accent: #FF5722;
+        }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        /* === TITLE SLIDE === */
+        .title-slide {
+            background: var(--bg-gradient);
+            position: relative;
+        }
+
+        .title-card {
+            background: var(--card-bg);
+            padding: clamp(2rem, 6vw, 4rem);
+            border-radius: clamp(1rem, 2vw, 2rem);
+            max-width: min(90vw, 800px);
+            margin: 0 auto;
+            position: relative;
+            animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .slide-number {
+            position: absolute;
+            top: clamp(1rem, 3vw, 2rem);
+            left: clamp(1rem, 3vw, 2rem);
+            font-family: 'Archivo Black', sans-serif;
+            font-size: clamp(3rem, 8vw, 6rem);
+            color: var(--text-on-card);
+            opacity: 0.15;
+            line-height: 1;
+        }
+
+        h1 {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: var(--title-size);
+            color: var(--text-on-card);
+            margin: 0 0 clamp(0.5rem, 2vw, 1rem) 0;
+            line-height: 1.1;
+        }
+
+        .subtitle {
+            font-size: var(--h3-size);
+            color: var(--text-on-card);
+            opacity: 0.8;
+            margin: 0;
+            font-weight: 400;
+        }
+
+        /* === CONTENT SLIDE === */
+        .content-slide {
+            background: var(--bg-gradient);
+        }
+
+        .content-wrapper {
+            max-width: min(90vw, 900px);
+            margin: 0 auto;
+        }
+
+        h2 {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: var(--h2-size);
+            color: var(--accent);
+            margin: 0 0 var(--content-gap) 0;
+            animation: fadeIn 0.6s ease-out 0.2s both;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: var(--element-gap);
+        }
+
+        .feature-list li {
+            font-size: var(--body-size);
+            line-height: 1.6;
+            padding-left: clamp(1.5rem, 3vw, 2rem);
+            position: relative;
+            animation: slideInLeft 0.5s ease-out both;
+        }
+
+        .feature-list li:nth-child(1) { animation-delay: 0.3s; }
+        .feature-list li:nth-child(2) { animation-delay: 0.4s; }
+        .feature-list li:nth-child(3) { animation-delay: 0.5s; }
+        .feature-list li:nth-child(4) { animation-delay: 0.6s; }
+        .feature-list li:nth-child(5) { animation-delay: 0.7s; }
+
+        .feature-list li::before {
+            content: '▸';
+            position: absolute;
+            left: 0;
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        /* === CLOSING SLIDE === */
+        .closing-slide {
+            background: var(--bg-gradient);
+            text-align: center;
+        }
+
+        .closing-card {
+            background: var(--card-bg);
+            padding: clamp(2rem, 5vw, 3rem);
+            border-radius: clamp(1rem, 2vw, 2rem);
+            max-width: min(80vw, 600px);
+            margin: 0 auto;
+            animation: scaleIn 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .closing-card h2 {
+            color: var(--text-on-card);
+            margin-bottom: clamp(0.5rem, 1.5vw, 1rem);
+        }
+
+        .closing-card p {
+            font-size: var(--body-size);
+            color: var(--text-on-card);
+            opacity: 0.9;
+            margin: 0;
+        }
+
+        /* === NAVIGATION === */
+        .nav-dots {
+            position: fixed;
+            right: clamp(1rem, 3vw, 2rem);
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            z-index: 100;
+        }
+
+        .nav-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-primary);
+            opacity: 0.3;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .nav-dot.active {
+            opacity: 1;
+            background: var(--accent);
+            transform: scale(1.3);
+        }
+
+        /* === ANIMATIONS === */
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(40px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- === SLIDE 1: TITLE === -->
+    <section class="slide title-slide">
+        <div class="slide-content">
+            <div class="title-card">
+                <div class="slide-number">01</div>
+                <h1>Frontend Slides</h1>
+                <p class="subtitle">零依赖 HTML 演示文稿生成器</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- === SLIDE 2: FEATURES === -->
+    <section class="slide content-slide">
+        <div class="slide-content">
+            <div class="content-wrapper">
+                <h2>核心特性</h2>
+                <ul class="feature-list">
+                    <li>单文件 HTML，无需 npm 或构建工具</li>
+                    <li>12 种精选视觉预设，避免 AI 同质化</li>
+                    <li>PPT 转网页，保留所有图片和内容</li>
+                    <li>响应式设计，完美适配所有设备</li>
+                    <li>丰富动画效果，提升演示体验</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- === SLIDE 3: USE CASES === -->
+    <section class="slide content-slide">
+        <div class="slide-content">
+            <div class="content-wrapper">
+                <h2>适用场景</h2>
+                <ul class="feature-list">
+                    <li>产品发布会演示文稿</li>
+                    <li>技术分享与教学课件</li>
+                    <li>创业路演 Pitch Deck</li>
+                    <li>内部汇报与方案展示</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- === SLIDE 4: CLOSING === -->
+    <section class="slide closing-slide">
+        <div class="slide-content">
+            <div class="closing-card">
+                <h2>验收完成 ✓</h2>
+                <p>Frontend Slides 已成功部署并可交付使用</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- === NAVIGATION DOTS === -->
+    <div class="nav-dots">
+        <div class="nav-dot active" data-slide="0"></div>
+        <div class="nav-dot" data-slide="1"></div>
+        <div class="nav-dot" data-slide="2"></div>
+        <div class="nav-dot" data-slide="3"></div>
+    </div>
+
+    <script>
+        // === KEYBOARD NAVIGATION ===
+        document.addEventListener('keydown', (e) => {
+            const slides = document.querySelectorAll('.slide');
+            const current = Math.round(window.scrollY / window.innerHeight);
+            
+            if (e.key === 'ArrowDown' || e.key === ' ' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                if (current < slides.length - 1) {
+                    slides[current + 1].scrollIntoView({ behavior: 'smooth' });
+                }
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                if (current > 0) {
+                    slides[current - 1].scrollIntoView({ behavior: 'smooth' });
+                }
+            } else if (e.key === 'Home') {
+                e.preventDefault();
+                slides[0].scrollIntoView({ behavior: 'smooth' });
+            } else if (e.key === 'End') {
+                e.preventDefault();
+                slides[slides.length - 1].scrollIntoView({ behavior: 'smooth' });
+            }
+        });
+
+        // === NAV DOTS ===
+        const dots = document.querySelectorAll('.nav-dot');
+        dots.forEach(dot => {
+            dot.addEventListener('click', () => {
+                const slideIndex = parseInt(dot.dataset.slide);
+                document.querySelectorAll('.slide')[slideIndex].scrollIntoView({ behavior: 'smooth' });
+            });
+        });
+
+        // === UPDATE ACTIVE DOT ON SCROLL ===
+        window.addEventListener('scroll', () => {
+            const current = Math.round(window.scrollY / window.innerHeight);
+            dots.forEach((dot, index) => {
+                dot.classList.toggle('active', index === current);
+            });
+        });
+    </script>
+</body>
+</html>

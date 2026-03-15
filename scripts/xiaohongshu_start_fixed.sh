@@ -3,6 +3,12 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_XHS_HOME="${XHS_RUNTIME_HOME:-$HOME/xhs_workspace/xiaohongshu-send}"
+COOKIE_FILE="${RUNTIME_XHS_HOME}/data/cookies.json"
+RUN_DIR="${RUNTIME_XHS_HOME}/run"
+LOG_FILE="${RUNTIME_XHS_HOME}/logs/mcp.log"
+
 log() {
   printf '[xhs-start] %s\n' "$1"
 }
@@ -13,17 +19,18 @@ pkill -9 -f xiaohongshu-mcp 2>/dev/null || true
 sleep 1
 
 # 检查Cookie文件
-if [[ ! -f ~/xhs_workspace/xiaohongshu-send/data/cookies.json ]]; then
+if [[ ! -f "${COOKIE_FILE}" ]]; then
   log "❌ Cookie文件不存在"
-  log "请先运行: bash /Users/a8/Desktop/家养小龙虾🦞/openclaw-workspace/scripts/xiaohongshu_quick_fix.sh"
+  log "请先运行: bash ${SCRIPT_DIR}/xiaohongshu_quick_fix.sh"
   exit 1
 fi
 
 # 启动服务
 log "启动MCP服务"
-cd ~/xhs_workspace/xiaohongshu-send
+cd "${RUNTIME_XHS_HOME}"
 COOKIES_PATH=./data/cookies.json nohup ./bin/xiaohongshu-mcp -port :18060 -headless=true -rod "dir=./profile" > logs/mcp.log 2>&1 &
-echo $! > run/mcp.pid
+mkdir -p "${RUN_DIR}"
+echo $! > "${RUN_DIR}/mcp.pid"
 
 sleep 3
 
@@ -48,6 +55,6 @@ if curl -fsS "http://127.0.0.1:18060/health" >/dev/null 2>&1; then
   fi
 else
   log "❌ MCP服务启动失败"
-  tail -20 logs/mcp.log
+  tail -20 "${LOG_FILE}"
   exit 1
 fi

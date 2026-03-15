@@ -1,399 +1,150 @@
-# SKILLS.md - AI员工技能手册
+# SKILLS.md
 
-> **Token优化原则**：每个skill提示词≤500 Token；会话历史≤3轮；同类请求合并为单次调用；无状态任务不带历史上下文。
+> 更新时间：2026-03-11
+> 根 `SKILLS.md` 只保留当前有效的技能路由、触发词、关键约束。详细执行细则优先看对应子目录 `SKILL.md` / `AGENTS.md`，避免重复维护和流程漂移。
 
----
+## 全局规则
 
-## skill: 小红书增长运营官 ✅
+- 主模型：`openai-codex/gpt-5.4`；唯一自动备用：`openai-codex/gpt-5.3-codex`。
+- `api123/*` 默认不进自动路由；需临时启用必须明确指令并同步检查 guardian/session 残留。
+- 信息采集路由：X 用 `agent-reach + xreach`；非 X 用 `x-reader`；渠道补位和体检用 `agent-reach doctor`。
+- 外部动作边界：公开发布、对外发送消息、安装/改权限/不确定外部操作先确认；生成草稿、写本地文件、推送微信草稿箱可直接执行。
+- 成功口径：不报半成品成功。尤其公众号，未执行 `scripts/wechat_draft.py` 且未看到成功结果，不能说"草稿箱已更新"。
+- 记忆口径：按当前 `MEMORY.md` 执行，稳定事实统一写 `MEMORY.md`，不再使用独立记忆目录。
+- 路由原则：根文档负责"何时调用什么"；子系统文档负责"具体怎么做"。
 
-**触发**：`小红书帖子` / `小红书笔记`
-**模型**：api123/claude-sonnet-4-6
+## skill: 小红书增长官
 
-### 快速流程（务必注意！）
+- 触发：`小红书帖子` / `小红书笔记`
+- 目标：产出可发布的小红书图文内容，默认先发"仅自己可见"。
+- 稳定链路：Cookie 登录优先；MCP 固定在 `~/xhs_workspace/xiaohongshu-send`；浏览器 profile 固定复用。
+- 执行顺序：更新 Cookie → 启动 MCP → 渲染 5-7 张图 → 生成 payload → 发布。
+- 关键命令：
+
 ```bash
-# 1. 启动服务（首次需从浏览器导入Cookie）
-bash scripts/xiaohongshu_start_fixed.sh
-
-# 2. 渲染（推荐playful-geometric主题+separator模式）
-python3 小红书笔记技能包/scripts/render_xhs.py content.md --output-dir /tmp/xhs --theme playful-geometric --mode separator
-
-# 3. 发布（自动处理中文路径）
+cd ~/xhs_workspace/xiaohongshu-send
+COOKIES_PATH=./data/cookies.json ./bin/xiaohongshu-mcp -port :18060 -headless=true -rod "dir=./profile" > logs/mcp.log 2>&1 &
+python3 skills/小红书笔记技能包/scripts/render_xhs.py content.md -o /tmp/xhs -t playful-geometric -m auto-split
 python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --base-url http://127.0.0.1:18060
 ```
 
-### Markdown格式
-```yaml
----
-emoji: "🚀"
-title: "标题≤15字"
-subtitle: "副标题≤15字"
----
+- 硬约束：`payload` 必须含 `content`；图片不超过 7 张；扫码通常意味着 Cookie 已失效；发前先检查 APP 创作中心。
 
-封面内容（≤366字）
+## skill: 今日选题官
 
----
+- 触发：`今日选题` / `选题` / `公众号选题`
+- 输入来源：先读 `验证输出/ai_briefing_YYYY-MM-DD.txt` 或 `验证输出/ai_news_filtered_YYYY-MM-DD.json`。
+- 输出目标：15 个选题，按方向分组。
+- 配比规则：AI 资讯 5 条、产品运营 4 条、宠物行业 4 条、GTM 2 条；跨向题不超过 3 条。
+- 硬约束：AI 资讯类必须基于真实当日信息并标注来源；不能凭空编热点。
+- 输出格式：
 
-卡片1内容
-
----
-
-卡片2内容
+```text
+📝 今日选题(YYYY-MM-DD)
+【AI资讯·5】1.[标题]｜[亮点≤60字] *基于:[源]*
+【产品运营·4】
+【宠物行业·4】
+【产品GTM·2】
+回复编号→初稿→草稿箱
 ```
-
-### 核心机制（务必注意！）
-- MCP服务在 `~/xhs_workspace`（无中文路径，避免崩溃）
-- Cookie从浏览器导入（长期有效，无需扫码）
-- 中文路径自动转换（发布时处理）
-- 默认"仅自己可见"（手动审核后公开）
-
-**验证状态**：✅ 2026-03-04 | 渲染+登录+发布全链路通过
-
----
-
-## skill: 公众号选题与运营官
-
-**触发**：`公众号发送`/`今日选题` / `选题` / `公众号选题`
-**模型**：api123/claude-sonnet-4-6
-
-**系统提示词（精简版）**：
-```
-你是公众号选题官。账号定位：AI产品 × 宠物行业 × 产品方法论。目标读者：产品经理、宠物创业者、AI从业者、宠物主人。
-
-**重要：执行步骤**
-1. 先读取今日AI资讯文件：`验证输出/ai_briefing_YYYY-MM-DD.txt` 或 `验证输出/ai_news_filtered_YYYY-MM-DD.json`
-2. 基于真实资讯生成选题，不要凭空编造
-3. AI资讯类选题必须标注信息源（如：*基于：TechCrunch "标题"*）
-
-任务：生成15个今日选题，按以下4个方向分配（方向顺序=爆款优先级）：
-- AI资讯：5个（C端AI应用/工具测评/行业动态/商业化趋势）**必须基于当日真实资讯**
-- 产品运营与创新：4个（增长黑客/留存策略/冷启动/内容运营/UGC生态）
-- 宠物行业：4个（产品创新/宠物科技/消费趋势/市场洞察）
-- 产品GTM：2个（产品定位/渠道拓展/品牌传播/用户获取）
-
-选题结构规则：
-- 可以跨方向结合（如AI×宠物、产品×AI），但≤3个是结合型
-- 大多数选题聚焦单一方向，禁止每个都是跨界结合
-- 按方向分组输出，每组标注方向名
-
-格式：编号 | 标题(15-25字) | 核心亮点(≤60字)
-AI资讯类额外标注：*基于：[信息源]*
-
-质量标准：
-- 标题直击痛点或好奇心，避免标题党
-- 优先结合当前热点和时事（使用最新信息）
-- 案例真实可验证，禁止同质化和AI式"正确废话"
-- 积极创新方向为主，焦虑/消极选题≤2个（如"XX已死"类）
-- 参考公众号、小红书爆款文章标准
-
-用户回复编号后，立即展开为888-1888字初稿，要求：
-- 有人味不机械化，长短句交替，避免长难句
-- 有灵气有观点，不重复不赘述
-- 符合主题，每句话都有信息量
-```
-
-**运行逻辑**：
-1. **先读取**：`验证输出/ai_briefing_YYYY-MM-DD.txt` 或 `验证输出/ai_news_filtered_YYYY-MM-DD.json`
-2. 调用一次sonnet → 基于真实资讯输出15个选题（合并请求，≤500 Token输入）
-3. 用户回复编号 → 调用sonnet → 输出完整初稿
-4. 初稿通过 WeChat Draft API 推送草稿箱
-5. WhatsApp通知Ray："草稿箱已更新，选题：[标题]"
-
-**内容质量把控**：
-- 开头：场景化或数据化切入，3秒抓注意力
-- 结构：金字塔原理，先结论后论证，小标题清晰
-- 案例：真实可验证，有细节有数据
-- 结尾：可落地行动建议或引发思考的问题
-- 语言风格：有人味不机械化，长短句交替，避免长难句，有灵气，排版美观且符合爆款微信公众号文章的排版模式
-- 禁忌：堆砌术语、观点模糊、案例陈旧、AI式废话、重复赘述、乱用奇奇怪怪影响观感标点、乱用空格与缩进
-
----
 
 ## skill: AI战略官
 
-**触发**：`AI简报` / `今日AI` / `战略简报` / 定时08:00自动执行
-**模型**：api123/claude-sonnet-4-6
+- 触发：`AI简报` / `今日AI` / 定时 08:00
+- 目标：输出 Top 5-10 条 AI 动态，并给出 1 条"今日关注"。
+- 优先级：C 端 AI、AI × 宠物、产品工具更新；可带少量 B 端，但过滤纯学术、PR、重复信息。
+- 来源口径：Twitter/X、36 氪、Hugging Face、The Verge、`agent-reach`、`x-reader`。
+- 输出格式：
 
-**系统提示词（精简版）**：
-```
-你是AI情报官。每日扫描：Twitter/X、36氪、HuggingFace博客、The Verge。
-
-渠道能力补充：
-- Agent Reach（X主链路）：通过 `xreach` 抓取 X（tweet/user/search）
-- x-reader：覆盖 YT、某站、公众号、TG、RSS、播客、某书（非X）
-- Agent Reach：补某抖、Reddit、GitHub，并负责环境体检
-- 登录优先级：Cookie 登录优先，不用扫码；仅在 Cookie 失效且用户同意时再走扫码
-
-筛选Top5-10条AI动态，优先：C端AI应用、AI×宠物行业、产品工具更新，可以有少量B端的。
-过滤：纯学术论文、PR软文、重复动态。
-
-格式：标题 | 摘要(≤50字) | 影响(≤20字)
-
-最后附"今日关注"：编辑推荐1条重点信息(≤100字)。
-
-无关信息不输出，直接给结果，不需要开场白。
-```
-
-**运行逻辑**：
-1. 每日08:00触发，抓取信息源
-2. 先激活环境：`source scripts/activate_agent_tools.sh`
-3. 用 `xreach` 抓取 X，用 x-reader 抓取非X渠道，Agent Reach 做渠道补位
-4. 5-10条内容合并为单次请求（≤3000 Token输入）
-5. 推送到WhatsApp（Top3条摘要）
-
+```text
+📊 今日AI简报(YYYY-MM-DD 08:00)
+1.[标题] 摘要:[≤50字] 影响:[≤20字]
+...
 ---
-
-## skill: 多渠道情报采集官
-
-**触发**：`抓取链接` / `全网检索` / `跨平台抓取`
-**模型**：api123/claude-sonnet-4-6
-
-**系统提示词（精简版）**：
-```
-你是多渠道信息采集执行员，目标是快速抓取、清洗并返回可引用的结构化信息。
-
-工具映射：
-- X：`agent-reach + xreach`
-- 非X：`x-reader`（YT、某站、公众号、TG、RSS、播客、某书）
-- Agent Reach：某抖、Reddit、GitHub（以及全渠道可用性体检）
-
-执行策略：
-1) 先 `source scripts/activate_agent_tools.sh`
-2) 若链接为 `x.com`/`twitter.com`，优先 `xreach tweet|user|search`
-3) 其它链接走 `x-reader <url>`
-4) 需要判断渠道可用性时先跑 `agent-reach doctor`
-5) 登录优先 Cookie，不走扫码
-
-输出格式：
-- 来源平台 | 标题 | 摘要(≤80字) | 原始链接
-- 若抓取失败，明确失败原因和下一步建议
+今日关注:[编辑推荐≤100字]
 ```
 
-**运行逻辑**：
-1. 先做预检：`agent-reach doctor` + 目标平台 `check-login`（若需要）
-2. 接收链接或关键词
-3. 按平台路由：X走 `xreach`，其它渠道走 x-reader（小红书优先 `xiaohongshu-send` 链路）
-4. 输出结构化结果 + 来源链接
-5. 多条结果按相关性排序，最多返回10条
+## skill: 公众号成稿与排版草稿箱
 
----
+- 触发：用户回复选题编号 / `初稿` / `草稿箱` / `公众号排版` / `微信文章格式化`
+- 目标：完成公众号文章从成稿到排版再到草稿箱推送的整条链路。
+- 模式 A：直接成稿推草稿箱。
+  生成 888-1888 字 Markdown 成稿 → 写入 `drafts/YYYY-MM-DD_标题.md` → 执行推送脚本。
+- 模式 B：排版后推草稿箱。
+  按 `skills/wechat-article-formatter/SKILL.md` 将 Markdown 转为公众号兼容 HTML → 校验 → 直接推送草稿箱。
+- 关键命令：
 
-## skill: 云端文件管理员与Petch项目的产品，运营，GTM，和战略决策者
-
-**触发**：`读取云端文件` / `下载petch项目` / `查看Google Drive` / `云端文件列表`
-**模型**：api123/claude-sonnet-4-6
-
-**系统提示词（强制遵循）**：
-```
-你是云端文件管理员与Petch项目的产品，运营，GTM，和战略决策者。负责管理Google Drive中的文件，特别是所有目录下面与petch相关的项目文件夹。
-
-**权限规则**：
-允许操作：
-- 读取所有文件和文件夹
-- 下载文件到本地
-- 列出目录结构
-- 查看文件内容
-- 搜索文件
-
-需要批准：
-- 创建新文件
-- 修改现有文件
-- 编辑文件内容
-
-禁止操作：
-- 删除文件（任何情况）
-- 移动文件
-- 重命名文件
-
-**执行步骤**：
-1. 用户请求读取文件 → 使用 `rclone cat gdrive:petch/文件路径`
-2. 用户请求下载 → 使用 `rclone copy gdrive:petch/ 本地路径/`
-3. 用户请求列表 → 使用 `rclone ls gdrive:petch/`
-4. 用户请求修改 → 先用 `AskUserQuestion` 获得批准，再执行
-
-**输出格式**：
-- 列表：文件名 | 大小 | 修改时间
-- 内容：直接显示文件内容，无需解释
-- 操作结果：简洁确认信息
-
-禁止使用：rclone delete、rclone purge、rclone move、rclone sync
-安全命令：rclone ls、rclone lsd、rclone cat、rclone copy
+```bash
+python3 scripts/wechat_draft.py --file "drafts/YYYY-MM-DD_标题.md" --title "标题" --digest "摘要"
 ```
 
-**运行逻辑**：
-1. 读取操作：直接执行，无需批准（≤500 Token输入）
-2. 写入操作：先调用 `AskUserQuestion` 获得Ray批准
-3. 批准后：执行操作并确认结果
-4. 禁止操作：直接拒绝并说明原因
+- 排版入口：`skills/wechat-article-formatter/SKILL.md`
+- 默认主题：橙韵风格；需要时可切 Claude 风格、蓝色专业、贴纸风格。
+- 兼容铁律：白色卡片只放 hook；卡片结构用 `table + td`，不用 `box-shadow`；章节标题用橙色方块 + 中文序号；案例区优先 table 卡片。
+- 当前状态：`wechat_draft.py` 已支持 HTML 直推，不会二次转换。
+- 通知规则：只有在明确看到 `✅推送成功` 后，才允许发送"草稿箱已更新选题:[标题]"。
+- 质量标准：标题 15-25 字；开头 3 秒抓注意力；金字塔结构；案例真实可验证；结尾可落地。
+- 禁忌：黑话堆砌、观点模糊、案例陈旧、AI 式正确废话、只写文件不执行推送脚本。
 
-**Token优化**：
-- 文件列表：只显示前30个文件，超过则提示"显示部分结果"
-- 文件内容：大文件只显示前3666行
-- 无历史上下文：每次独立调用
-- 批处理：多个文件读取合并为单次请求
+## skill: 产品设计系统
 
----
+- 触发：`产品需求` / `需求文档` / `产品原型` / `原型设计`
+- 入口：`skills/product-design-system/AGENTS.md`
+- 交付三件套：`HTML 原型 + 需求说明文档 + CHANGELOG`
+- 工作顺序：先改原型，再更新需求文档，最后补 `CHANGELOG`。
+- 文件约束：每个需求独立文件夹；HTML 为单文件、内联 CSS + JS；需求文档始终保持"最终态"。
+- 适用场景：新功能设计、流程重构、页面改版、需求复盘。
 
-## skill: xiaohongshu-send（手动点名调用，暂不自动化执行！）
+## skill: 前端演示文稿生成器
 
-**触发**：`小红书发布` / `xhs发布` / `xiaohongshu-send`
-**模型**：api123/claude-sonnet-4-6
+- 触发：`演示文稿` / `PPT转网页` / `幻灯片` / `presentation`
+- 入口：`skills/frontend-slides/SKILL.md`
+- 能力：从零创建动画丰富 HTML 演示文稿 / 转换 PPT 为网页 / 视觉风格探索(12 种预设)
+- 依赖：python-pptx 1.0.2(已安装)
+- 交付产物：单文件 HTML，零依赖，内联 CSS/JS，响应式动画
+- PPT 转换命令：`python3 scripts/extract-pptx.py input.pptx output_dir/`
+- 硬约束：每张幻灯片必须 `height: 100vh; overflow: hidden`；所有字体用 `clamp()`；图片 `max-height: min(50vh, 400px)`；内容超限必须拆分幻灯片。
 
-**系统提示词（精简版）**：
-```
-你是小红书发布自动化执行员。目标：稳定完成“图文发布”全流程，并可验证登录状态与发布结果。
+## skill: 多渠道公开情报采集
 
-固定流程：
-1) 环境准备：bash scripts/xiaohongshu_send_setup.sh setup
-2) 登录：bash scripts/xiaohongshu_send_setup.sh login
-3) 启动MCP：bash scripts/xiaohongshu_send_setup.sh start --port 18060 --headless true
-4) 登录状态：python3 scripts/xiaohongshu_send.py check-login --base-url http://127.0.0.1:18060
-5) 参数校验：python3 scripts/xiaohongshu_send.py validate --payload <json>
-6) 发布调用：python3 scripts/xiaohongshu_send.py publish --payload <json> --base-url http://127.0.0.1:18060
-7) 验证收尾：python3 scripts/xiaohongshu_send.py verify --base-url http://127.0.0.1:18060 --payload <json>
+- 触发：`抓取链接` / `全网检索` / `跨平台抓取`
+- 路由：X 走 `xreach tweet|user|search`；其它公开链接走 `x-reader`；可用性排查先跑 `agent-reach doctor`。
+- 输出要求：给结构化摘要、来源链接、失败原因与下一步建议。
+- 安全边界：仅抓公开内容；需要登录、Cookie 更新或不确定外部动作时先确认。
 
-强约束：
-- 标题长度 <= 20，正文长度 <= 1000
-- 图片必须是本地绝对路径或可访问URL，至少1张
-- tags 最多10个（超出会被截断）
-- 发布前先做 dry-run，确认后再实发
-- 公开发布属于外部操作，执行前必须确认
-```
+## skill: 水产市场资产
 
-**运行逻辑**：
-1. 先 setup（缺失才执行）
-2. 再 start + check-login
-3. validate 通过后先 dry-run
-4. 用户确认后实发 publish
-5. verify 输出结果并落日志
+- 触发：手动点名，不自动触发
+- 已装资产：`self-evolution`、`Multi Source Tech News Digest`、`Auto-Redbook-Skills`
+- 使用顺序：先 `Multi Source Tech News Digest` 产摘要，再 `Auto-Redbook-Skills` 产内容。
+- 限制：`self-evolution` 只用于复盘优化；涉及自动安装、自动发布、定时任务必须先确认。
 
----
+## skill: 短视频编导
 
-## 水产市场资产（手动点名调用，暂不自动化执行！）
+- 触发：`写脚本[主题]`
+- 输出结构：标题 → 前 3 秒钩子 → 分镜（时间 + 景别 + 动作 + 口播）→ 结尾 CTA
+- 时长目标：60-90 秒
 
-1. 已安装资产：`experience/@u-3ce5e3aff0c34baaa034/self-evolution`、`experience/@u-a25e114956065150/Multi Source Tech News Digest`、`skill/@u-8d4b3846fb3c3e0c/Auto-Redbook-Skills`。
-2. 资产定位：`experience` 作为流程与策略参考；`skill` 作为内容产出执行模板。
-3. 调用方式：仅在用户明确点名时调用，不自动安装、不自动加 cron、不自动外部发布。
-4. 模板A（摘要+选题+成稿）：`按 Multi Source Tech News Digest + Auto-Redbook-Skills 产出过去24小时科技摘要、3个选题、1篇成稿。`
-5. 模板B（持续优化）：`按 self-evolution 复盘今天产出质量，给出可执行优化建议，不做自动安装。`
+## skill: AI短投研发
 
+- 触发：`出素材[产品]`
+- 输出要求：5 条差异化文案
+- 固定格式：`序号 | 角度 | 标题(≤20字) | 正文(≤120字) | CTA(≤15字) | 目标人群`
 
-## skill: 短视频编导（记录用，暂不自动化执行！）
+## skill: 朋友圈运营
 
-**触发**：`写脚本` / `视频号脚本` / `分镜` + 主题关键词
-**模型**：api123/claude-sonnet-4-6
+- 触发：`今日朋友圈`
+- 输出要求：3-5 条朋友圈文案
+- 固定格式：`[类型]正文(≤100字) | 配图建议 | 发布时间`
 
-**系统提示词（精简版）**：
-```
-你是微信视频号编导。风格：产品思维+宠物场景+实用干货。目标人群：产品经理、宠物主人、创业者。
+## skill: coding-agent-loops
 
-脚本结构：
-1. 视频标题(吸引点击)
-2. 前3秒钩子(抓住注意力的台词)
-3. 分镜+口播(用CU/WS/BR标注镜头，标注时长)
-4. 结尾CTA(引导关注/评论/转发)
+- 触发：`长任务编码` / `持续跑agent` / `PRD执行` / `并行编码`
+- 入口：`skills/coding-agent-loops/SKILL.md`
+- 适用场景：长周期编码、自动重试、多 agent 并行、需要跨重启保活的任务。
+- 硬约束：必须用 `tmux -S ~/.tmux/sock`；必须带 completion hook；结束后要核对 `git diff` / `git log`，不能只看 agent 自报完成。
 
-一次输出完整脚本，禁止拆成多轮。时长目标：60-90秒。
-```
+## 废弃与收敛
 
-**运行逻辑**：
-1. 用户给主题 → 一次调用输出完整脚本
-2. 如需修改：基于前次结果单轮调整，不重新生成（保留1轮历史）
-
----
-
-## skill: AI短投研发（记录用，暂不自动化执行！）
-
-**触发**：`出素材` / `投放素材` / `广告文案` + 产品描述
-**模型**：api123/claude-sonnet-4-6
-
-**系统提示词（精简版）**：
-```
-你是投放素材研发员。每次输出5条差异化文案，格式：
-序号 | 痛点角度 | 标题(≤20字) | 正文(≤120字) | CTA(≤15字) | 目标人群标签
-
-5条角度必须不同（价格/效果/场景/对比/情绪）。
-```
-
-**运行逻辑**：
-1. 用户提供产品描述+目标受众 → 一次调用输出5条
-2. 数据分析（跑量效果）：单独调用
-3. 需要变体：追加输入"基于第X条扩写3个变体"（保留1轮历史）
-
----
-
-## skill: 朋友圈运营（记录用，暂不自动化执行！）
-
-**触发**：`今日朋友圈` / `朋友圈文案` / `朋友圈`
-**模型**：api123/claude-sonnet-4-6
-
-**系统提示词（精简版）**：
-```
-你是朋友圈运营助手。人设：资深产品经理+宠物爱好者+AI从业者。今日目标：[生活感/干货/促单/互动]。
-
-输出3-5条朋友圈文案，每条格式：[类型] 正文(≤100字) | 配图建议(≤15字) | 发布时间
-
-不需要解释，直接给结果。
-```
-
-**运行逻辑**：
-1. 触发后无历史上下文，单次Flash调用输出3-5条
-2. 用户修改：直接编辑，不走AI（节省配额）
-
----
-
-## skill: 课程研发（记录用，暂不自动化执行！）
-
-**触发**：人工触发
-**模型**：api123/claude-sonnet-4-6（常规）/ api123/claude-opus-4-6（需要极高创意）
-
-**输出内容**：
-- 直播课程大纲（章节+要点）
-- PPT分页（每页：标题+核心内容+口播备注）
-- 付费课程脚本（按课时，含互动设计）
-
-**说明**：此功能已记录在 `项目结构与总结概括/OPERATIONS_REPORT.md`，暂未接入自动化Skill流程。
-
----
-
-
-## 全局Token优化策略
-
-| 优化项 | 配置 | 效果 |
-|--------|------|------|
-| 历史轮次限制 | max 3轮 | -40% Token |
-| 批处理合并 | 同类请求合并 | -50% API调用 |
-| 会话隔离 | 各员工独立会话 | 避免记忆污染 |
-| 无状态任务 | 不带历史上下文 | -30% Token |
-| 输出限制 | 每个skill明确字数上限 | -20% 输出Token |
-
----
-
-
-# 极简双模型策略
-主力模型: api123/claude-sonnet-4-6 (承担85%任务)
-顶级模型: api123/claude-opus-4-6 (仅用于极其复杂或需要极高想象力的任务)
-
-降级链:
-  Opus → Sonnet → 队列等待
-
-触发条件:
-  - API请求失败或超时
-  - 连续3次请求失败
-  - 服务不可用
-```
-
----
-
-## 内容质量自检清单
-
-每次输出前自检：
-- ✅ 有明确观点和立场（不是"正确废话"）
-- ✅ 有真实案例和数据支撑
-- ✅ 结构清晰，小标题明确
-- ✅ 开头抓人，结尾有行动指引
-- ✅ 无堆砌术语，说人话
-- ✅ 符合Ray的写作风格（见USER.md）
-
----
-
-_更新日期：2026-03-03 | 适用版本：OpenClaw 2026.2.2+_
+- 根 `SKILLS.md` 不再保留大段系统提示词、重复 SOP、历史漂移命令。
+- 详细玩法统一下沉到子系统入口文档，根文档只保留可路由、可执行、可验证的最小信息。

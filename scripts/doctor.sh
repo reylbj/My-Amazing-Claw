@@ -281,18 +281,23 @@ check_gateway_runtime() {
   fi
 
   local status_text=""
+  local command_path=""
+  local node_version=""
   status_text="$(openclaw gateway status 2>&1 || true)"
   if [[ -z "$status_text" ]]; then
     print_warn "无法获取网关状态（输出为空）"
     return
   fi
 
-  if echo "$status_text" | rg -q "Command: ${HOME}/.npm-global/lib/node_modules/node/bin/node "; then
-    print_ok "网关服务已固定到 Node 22 路径"
-  elif echo "$status_text" | rg -q "Command: /opt/homebrew/opt/node/bin/node "; then
-    print_err "网关服务使用 Homebrew Node（可能漂移到 Node 25），建议执行: bash scripts/gateway_stable_start.sh"
+  command_path="$(echo "$status_text" | sed -n 's/^Command: \([^ ]*\) .*/\1/p' | head -n 1)"
+  if [[ -n "$command_path" && -x "$command_path" ]]; then
+    node_version="$("$command_path" -v 2>/dev/null || true)"
+  fi
+
+  if [[ "$node_version" =~ ^v22\. ]]; then
+    print_ok "网关服务运行于 Node 22 (${command_path})"
   else
-    print_warn "未识别网关 Node 路径，请人工确认 Command 行"
+    print_err "网关服务未运行于 Node 22（当前: ${command_path:-unknown} ${node_version:-version-unknown}），建议执行: bash scripts/gateway_stable_start.sh"
   fi
 
   if echo "$status_text" | rg -q "RPC probe: ok"; then

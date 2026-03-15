@@ -1,91 +1,69 @@
 # MEMORY.md
 
-> 长期记忆：保留持久事实/决策/偏好。日常上下文写`memory/YYYY-MM-DD.md`
+> 长期记忆只保留稳定事实/偏好/固定解法；当前统一写`MEMORY.md`
 
-## 1) 不可变上下文
-- Agent: **OpenClaw(小龙虾)**，Ray的AI员工团队(内容创作+产品运营)
-- Owner: **Ray**(资深C端产品经理)
-- 主语言: **中文**(可英文)
-- 核心使命: 高质量输出+高效率+不越安全底线
+## 1. 人与风格
+- OpenClaw是Ray的AI员工团队，主做内容创作、产品运营、产品设计。
+- Ray是资深C端产品经理；主语言中文；偏好简洁、直接、可落地；反感正确废话和形式主义。
 
-## 2) 会话启动顺序
-固定读取: `SOUL.md` → `IDENTITY.md` → `USER.md` → `memory/近期记忆`
-长期记忆: `MEMORY.md`(主私有会话加载)
+## 2. 启动与节奏
+- 启动顺序固定：`SOUL.md`→`IDENTITY.md`→`USER.md`→`MEMORY.md`。
+- 默认节奏：08:00 AI简报，09:30 选题推送，30分钟心跳；无新信息回`HEARTBEAT_OK`。
 
-## 3) 持久用户偏好(Ray)
-- 沟通: 简洁直接，反对"正确废话"形式主义
-- 决策: 快速试错，结果导向，重可落地建议
-- 内容偏好: AI产品应用/产品运营创新/宠物行业/GTM
-- 写作标准: 结论前置/结构清晰/案例真实可验证/标题不标题党
-- 渠道策略: X内容抓取优先`Agent Reach+xreach`，非X渠道用`x-reader`，不依赖单一信息源
-- 登录偏好: 跨平台工具优先Cookie登录，不优先扫码
+## 3. 安全与原则
+- 不泄露隐私/密钥；破坏性操作、外发、公开发布、安装与权限改动先确认。
+- 不猜命令和配置；改配置前先备份，改后先验证再重启。
+- 不报半成品成功；尤其公众号，未执行`wechat_draft.py`且确认成功，不能说"草稿箱已更新"。
 
-## 4) 不可协商安全
-- 禁止: 泄露隐私/密钥、伪造信息外发、危险系统命令、破坏性删除
-- 外发前置: 所有对外发送内容必须可追溯且人工确认
-- 高风险操作: 先确认再执行(安装/配置改动/批量修改/公开发布等)
-- 安全基线: 重大变更后必须执行`bash scripts/security_baseline.sh check`；涉及凭证/权限后执行`bash scripts/security_baseline.sh fix`
+## 4. 运行稳定面
+- 工作区固定：`~/.openclaw/workspace-runtime-real`；避免Desktop中文/emoji路径，防`-11 read`。
+- 网关优先`openclaw gateway restart`或`bash scripts/gateway_stable_start.sh`；禁手工kill、禁`stop+start`连击。
+- `scripts/gateway_stable_start.sh`与guardian已修正为: 识别任意`Node 22`实际二进制路径，不再把`/opt/homebrew/opt/node@22/bin/node`误判为漂移；且会对"Service not installed"自动补做`openclaw gateway install --force`。
+- 企业微信官方插件的真实插件ID是`wecom-openclaw-plugin`，不是频道名`wecom`；若`plugins.allow/entries/installs`误写成`wecom`会让整份`openclaw.json`变 invalid 并卡死网关。guardian `configure` 与 `scripts/gateway_stable_start.sh` 现已在启动前自动迁移旧键并修复。
+- 清理QClaw后若掉线，先查`~/.openclaw/openclaw.json`是否残留`wechat-access`/`content-security`引用；删残留后再`restart`。
+- `whatsapp/telegram`若`groupPolicy=allowlist`且名单为空会丢群消息；空名单时群策略应为`open`。
+- 默认模型链路：`openai-codex/gpt-5.4` → `openai-codex/gpt-5.3-codex`；默认停用 `api123/*` 自动路由，避免后台探针与备用链路产生持续小额计费。
+- `scripts/openclaw_guardian.py` 已接管模型熔断：20分钟内连续3次 overload/504/failover 即 promote 到第一备用；静默20分钟后用临时 probe agent 探测原主模型，成功再切回。
+- 若原主模型已从当前 fallback 链移除，guardian 必须直接清空旧 failover 状态，不再继续探测或自动切回已下线模型。
+- 若旧 channel session 仍绑定已下线模型，必须清理对应 `sessions.json` 条目，让下一条消息重新按当前默认路由建会话。
+- guardian 模型恢复探针已兼容 provider 前缀被省略的模型回显（如请求`api123/claude-sonnet-4-6`，回传`claude-sonnet-4-6`），避免误判恢复失败。
+- WhatsApp 若把 `400 Improperly formed request` 原样回给用户，按主模型故障处理；guardian 也要统计这类 400 并 promote 到 `gpt-5.4`，同时清掉对应私聊旧 session 再重建。
 
-## 5) 稳定工作流
-- 触发词固定: `今日选题`/`AI简报`/`写脚本`/`出素材`/`今日朋友圈`/`发小红书`
-- 文章流程: 选题→成稿(888-1888字)→写入`drafts/`→调用`scripts/wechat_draft.py`→成功后再通知
-- 禁止半成品宣告: 未执行推送脚本并确认成功，不得声称"草稿箱已更新"
-- 多渠道采集: 激活`scripts/activate_agent_tools.sh`→`xreach`抓X主渠道→`x-reader`抓非X→`agent-reach doctor`补位可用性检查
-- 安全巡检: `bash scripts/doctor.sh`(内置安全基线)→若有权限告警执行`bash scripts/security_baseline.sh fix`再复检
-- 小红书稳定链路:
-  • MCP服务在`~/xhs_workspace/xiaohongshu-send`(无中文路径)
-  • Cookie从浏览器导入(`xiaohongshu_quick_fix.sh`)，长期有效
-  • 启动:`bash scripts/xiaohongshu_start_fixed.sh`
-  • 发布:`python3 scripts/xiaohongshu_auto_publish.py`(自动处理中文路径)
-  • 默认"仅自己可见"，手动审核后公开
-- 公众号推送前置: 微信开发配置IP白名单必须包含当前出口IP，否则报`40164 invalid ip`
+## 5. 内容与发布链路
+- 信息采集：X优先`agent-reach + xreach`；非X用`x-reader`；必要时`agent-reach doctor`补位。
+- 公众号流程：选题→成稿(888-1888字)→写`drafts/`→`scripts/wechat_draft.py`→确认成功后再通知。
+- 微信凭证在`.credentials`；报`40164 invalid ip`先加公众号IP白名单。
+- `skills/wechat-article-formatter/`已部署；默认橙韵风格；公众号兼容铁律：白卡用`table+td`、只放hook、章节标题用橙色方块+中文序号、案例用table卡片；`wechat_draft.py`已支持HTML直推不二次转换。
+- 小红书链路已稳定：Cookie优先；MCP在`~/xhs_workspace/xiaohongshu-send`；默认先发"仅自己可见"再人工公开。
+- 闲鱼接单当前走半自动：Ray手动发布/沟通，我负责生成交付；不承诺全自动上架。
+- `skills/xianyu-multi-agent/` 已补齐到 `skills/` 并改成默认优先走本机 `openclaw agent`，直接复用 `openai-codex/gpt-5.4`；无单独 API_KEY 也可生成闲鱼文案，若配置 `API_KEY` 则回退走 OpenAI SDK。
+- 闲鱼 Cookie 现统一三处存储并保持同步：根`.credentials`的`XIANYU_COOKIE`、`skills/xianyu-multi-agent/.env`的`COOKIES_STR`、`skills/xianyu-multi-agent/data/xianyu_cookies.json`；`scripts/xianyu_cookie_test.py` 改为走 `https://passport.goofish.com/newlogin/hasLogin.do` 校验，`XianyuApis.py` 调试日志不再打印 Cookie/Token 明文。
+- 闲鱼 `goofish` 新版发布页已确认不是旧的“标题+textarea”结构：当前主文案输入是 `contenteditable` 描述区，描述后会动态出现 `预计工期` 与 `计价方式` 两个下拉；`xianyu_auto_publish.py` 已按这个结构适配并增加默认安全占位首图 `skills/xianyu-multi-agent/data/default_publish_cover.png`，但发布按钮仍可能受平台前端异步/业务校验影响，默认仍按“半自动发布”认知处理。
+- 闲鱼新版发布页的 `发布` 按钮不能靠 class 名里是否含 `disabled` 来判断是否可点；真实状态要看 `disabled/aria-disabled/pointer-events` 等实际交互属性，否则会把已可发布的黄色按钮误判成灰态。
+- 闲鱼当前真实阻塞细节不是按钮颜色，而是图片上传链路的尾部静默：即使按钮已变黄，只要 `stream-upload.goofish.com/api/upload.api` 还有残留请求，就可能点了也不会真正发出最终发布请求；可视化真发命令已固定为 `bash scripts/xianyu_live_publish.sh ...`，脚本会先等上传接口静默再自动点发布。
+- 闲鱼发布文案当前固定四条约束：1）不做拼音首字母/缩写避审编码，只做合规改写；2）默认只传 1 张与主题相关的封面图；3）封面图在字段填写早期就先上传，让图片处理与表单填写并行；4）描述统一输出“适合需求/交付内容/服务亮点/下单前请发”结构，强调需求明确、排版清晰、便于成交。
 
-## 6) 节奏(默认)
-- 08:00 AI简报
-- 09:30 选题推送
-- Heartbeat检查间隔30分钟(无新增则`HEARTBEAT_OK`)
+## 6. 已部署能力
+- `skills/product-design-system/`：触发词"产品需求/需求文档/原型设计"，交付`HTML原型 + 需求说明文档 + CHANGELOG`。
+- `skills/wechat-article-formatter/`：触发词"公众号排版/微信文章格式化"，默认橙韵风格。
+- `skills/frontend-slides/`：触发词"演示文稿/PPT转网页/幻灯片/presentation"，零依赖HTML演示文稿生成器，支持PPT转换(python-pptx已装)、12种视觉预设、视觉风格探索。
+- `skills/coding-agent-loops`已安装，适合长任务、自动重试、持续编码流程。
+- 企业微信(WeCom)已于 2026-03-12 接入成功：官方插件 `@wecom/wecom-openclaw-plugin` 已安装并加载；配置走 `channels.wecom`，当前为 `dmPolicy=open`、`allowFrom=["*"]`、`groupPolicy=open`；已验证可正常收发消息。
 
-## 7) 记忆写入规则
-- 该写`MEMORY.md`: 长期有效偏好/已确认决策/稳定流程/复发问题固定解法
-- 不写`MEMORY.md`: 临时任务/一次性上下文/当天草稿细节(写日记文件)
-- 用户说"记住这个": 必须落盘，不依赖会话内记忆
+## 7. 记忆规则
+- 这里只写长期有效的偏好、决策、稳定流程、复发故障解法。
+- 用户说"记住这个"，必须落盘到 `MEMORY.md`，不能只靠会话记忆。
+- 不使用独立记忆目录，所有记忆统一写入 `MEMORY.md`。
+- 根 `SKILLS.md` 只保留技能路由与硬约束；详细执行细则下沉到各子系统 `SKILL.md` / `AGENTS.md`，避免重复维护。
+- 以后凡是用户让我从 GitHub 部署新项目或应用 skills，项目包默认存到 `skills/` 文件夹,且必须完整仔细的配置细节然后验证产出结果，之后必须同步极度精炼的更新这几个大目录下的核心文档：`SKILL.md`,`AGENTS.md`,`MEMORY.md`,`TOOLS.md`
 
-## 7.5) 凭证(持久)
-- **微信公众号**: 凭证存储在 `.credentials` 文件中(调用`scripts/wechat_draft.py`时自动读取)
-- **小红书cookie**: 凭证存储在 `.credentials` 文件中(运行xiaohongshu-send时自动读取)
-
-## 8) 你的铁律
-1. **openclaw.json修改**: 改前备份(带时间戳)→查文档确认字段→双验证(JSON解析+openclaw doctor)→重启
-2. **禁止危险重启**: 禁kill前台+systemd start、stop+start连击→优先restart
-3. **禁止猜命令/配置**: 不熟悉先查文档/--help、配置字段按schema
-4. **给选项必须等确认**: 不可擅自拍板
-5. **密钥安全**: 不暴露密钥、凭证存`.credentials`、示例用占位符
-6. **SSH私钥**: Secure Enclave硬件隔离、永不落盘
-7. **代码/生产变更**: 本地改→测试→commit→确认→推送/部署、不直接改线上核心代码
-
-## 9) 2026-03-08 网关复发固定解法
-- `-11 read` 复发后，runtime补丁必须覆盖 `daemon-cli` 与 `plugin-sdk`，不能只打 `channel-web/web`。
-- `openclaw_guardian.py configure` 执行“兼容优先写入”：固定清理不兼容键 `web.messageTimeoutMs / web.watchdogCheckMs / gateway.channelHealth`，避免 `Invalid config`。
-- WhatsApp/Web 待命默认值统一为 24 小时（全天待命），心跳静默提示阈值同步为 24 小时。
-- 入站链路对 `Unknown system error -11, read` 做 1 次 250ms 重试；重启统一走 `bash scripts/gateway_stable_start.sh`。
-
-## 10) 2026-03-08 群消息静默丢弃修复
-- `channels.{whatsapp,telegram}.groupPolicy=allowlist` 且 `allowFrom/groupAllowFrom` 为空时，群消息会被静默丢弃。
-- `openclaw_guardian.py configure` 现在会自动兜底：空名单场景将 `groupPolicy` 改为 `open`（仅群策略）。
-- 验证口径：`openclaw gateway status` 不再出现该 doctor 警告，`check-once --dry-run` 的 `reasons` 为空。
-
-## 11) 2026-03-08 模型路由固定
-- `api123/gpt-5.4` 渠道已从 `~/.openclaw/openclaw.json` 与 `~/.openclaw/agents/main/agent/models.json` 清除。
-- 默认模型固定 `api123/claude-sonnet-4-6`；备用固定 `openai-codex/gpt-5.3-codex`。
-- 实测验证：`openai-codex/gpt-5.3-codex` 探针调用成功后已切回默认 `sonnet`。
-
-## 12) 2026-03-08 guardian 启动路径固化
-- 根因：launchd 直接访问 Desktop 中文路径脚本，持续报 `Operation not permitted`，导致 guardian 自愈失效并放大掉线体感。
-- 固化：安装脚本改为先同步 `openclaw_guardian.py` 与 `gateway_stable_start.sh` 到 `~/.openclaw/guardian_runtime/scripts`，LaunchAgent 固定跑该路径。
-- 兼容：`gateway_stable_start.sh` 去除对 `rg` 的强依赖，缺失时自动降级 `grep`，避免守护环境因 PATH 差异失败。
-- 验证：`launchctl list` 中 `ai.openclaw.guardian` 返回码应为 `0`，`openclaw status` 渠道状态保持 `Telegram/WhatsApp = OK`。
-
-## 13) 2026-03-08 聊天链路根治（-11）
-- 结论：`agents.defaults.workspace` 直接指向 Desktop 中文/emoji 路径时，gateway 路径曾复现 `Unknown system error -11, read`，并触发 fallback 导致变慢。
-- 固化：workspace 改为 `~/.openclaw/workspace-runtime-real`（真实本地目录，非 Desktop/非软链接）。
-- 验收：2026-03-08 18:48 UTC 后完成 1 次写入 + 3 轮读写回归（均 `OK`），且 `gateway.err.log` 最新 `-11` 仍停留在 `2026-03-08T18:05:15Z`（无新增）。
+## 8. GitHub技能部署铁律
+每次从GitHub部署新项目时，必须严格执行：
+1. **完整配置**：克隆→读核心文档→安装依赖→设置权限→验证可用性
+2. **产出验证**：运行测试命令/检查关键文件/确认依赖就绪，不能只克隆就算完
+3. **文档同步**：验收通过后，必须极度精炼更新大目录下的四个核心文档：
+   - `MEMORY.md`：已部署能力条目(路径/触发词/核心特性/依赖状态)
+   - `AGENTS.md`：AI员工触发词段落(触发词/路径/规则文件/能力简述)
+   - `TOOLS.md`：工具使用说明(CLI命令/适用场景/关键参数)
+   - `SKILLS.md`(如存在)：技能路由条目
+4. **更新原则**：只写关键信息，避免重复SKILL.md内容，保持核心文档精简可读
