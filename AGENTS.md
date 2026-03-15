@@ -53,6 +53,12 @@ python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --ba
 ```
 要点:Cookie主账号;图≤7张;payload含content;检查APP创作中心;扫码=Cookie失效
 
+### 咸鱼运营官(`咸鱼运营`/`闲鱼运营`/`闲鱼发布`)
+路径:`skills/xianyu-multi-agent/`
+规则:直接调用`skills/xianyu-multi-agent`现有链路,不再走旧目录
+发布:`bash scripts/xianyu_live_publish.sh --title "标题" --description "描述"`
+要点:先备好文案与首图;发布属外部动作,执行前确认
+
 ### 1.选题官(`今日选题`/`选题`/`公众号选题`)
 读`验证输出/ai_briefing_YYYY-MM-DD.txt`或`ai_news_filtered_YYYY-MM-DD.json`→生成15选题(按方向分组)
 格式:

@@ -1,6 +1,6 @@
 # SKILLS.md
 
-> 更新时间：2026-03-11
+> 更新时间：2026-03-15
 > 根 `SKILLS.md` 只保留当前有效的技能路由、触发词、关键约束。详细执行细则优先看对应子目录 `SKILL.md` / `AGENTS.md`，避免重复维护和流程漂移。
 
 ## 全局规则
@@ -29,6 +29,14 @@ python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --ba
 ```
 
 - 硬约束：`payload` 必须含 `content`；图片不超过 7 张；扫码通常意味着 Cookie 已失效；发前先检查 APP 创作中心。
+
+## skill: 咸鱼运营官
+
+- 触发：`咸鱼运营` / `闲鱼运营` / `闲鱼发布`
+- 入口：`skills/xianyu-multi-agent/`
+- 路由：直接调用 `skills/xianyu-multi-agent`，不再使用旧目录。
+- 发布命令：`bash scripts/xianyu_live_publish.sh --title "标题" --description "描述"`
+- 约束：先备好文案与首图；发布属外部动作，执行前确认。
 
 ## skill: 今日选题官
 

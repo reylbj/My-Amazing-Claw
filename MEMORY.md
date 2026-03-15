@@ -42,6 +42,7 @@
 - 闲鱼新版发布页的 `发布` 按钮不能靠 class 名里是否含 `disabled` 来判断是否可点；真实状态要看 `disabled/aria-disabled/pointer-events` 等实际交互属性，否则会把已可发布的黄色按钮误判成灰态。
 - 闲鱼当前真实阻塞细节不是按钮颜色，而是图片上传链路的尾部静默：即使按钮已变黄，只要 `stream-upload.goofish.com/api/upload.api` 还有残留请求，就可能点了也不会真正发出最终发布请求；可视化真发命令已固定为 `bash scripts/xianyu_live_publish.sh ...`，脚本会先等上传接口静默再自动点发布。
 - 闲鱼发布文案当前固定四条约束：1）不做拼音首字母/缩写避审编码，只做合规改写；2）默认只传 1 张与主题相关的封面图；3）封面图在字段填写早期就先上传，让图片处理与表单填写并行；4）描述统一输出“适合需求/交付内容/服务亮点/下单前请发”结构，强调需求明确、排版清晰、便于成交。
+- 根 `AGENTS.md` / `SKILLS.md` 已增加“咸鱼运营官”路由；触发词为`咸鱼运营/闲鱼运营/闲鱼发布`，统一入口固定为 `skills/xianyu-multi-agent/`，正式发布命令固定为 `bash scripts/xianyu_live_publish.sh --title "标题" --description "描述"`。
 
 ## 6. 已部署能力
 - `skills/product-design-system/`：触发词"产品需求/需求文档/原型设计"，交付`HTML原型 + 需求说明文档 + CHANGELOG`。
