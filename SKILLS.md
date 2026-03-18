@@ -28,7 +28,7 @@ python3 skills/小红书笔记技能包/scripts/render_xhs.py content.md -o /tmp
 python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --base-url http://127.0.0.1:18060
 ```
 
-- 硬约束：`payload` 必须含 `content`；图片不超过 7 张；扫码通常意味着 Cookie 已失效；发前先检查 APP 创作中心。
+- 硬约束：`payload` 必须含 `content`；图片不超过 8 张；扫码通常意味着 Cookie 已失效；发前先检查 APP 创作中心。
 
 ## skill: 咸鱼运营官
 

@@ -4,6 +4,9 @@ __pycache__/
 .DS_Store
 node_modules/
 .env
+**/.env
+**/.git/
+**/venv/
 *.log
 logs/
 
@@ -12,20 +15,40 @@ MEMORY.md
 TOOLS.md
 USER.md
 HEARTBEAT.md
+SOUL.md
+IDENTITY.md
+PRIVATE_CONFIG_README.md
 
 # 凭证文件
 .credentials
 
 # 工作区状态和备份
+.clawhub/
 .openclaw/
 .legacy-backups/
 .token-optimization-backup/
 .venv-agent-tools-py39-*/
+.wechat-output/
+memory/
+drafts/
+**/test_output/
+**/*drafts/
+skills/*test_output/
+skills/*drafts/
 
 # 小红书相关
 xiaohongshu-send/bin/
 xiaohongshu-send/data/
 xiaohongshu-send/run/
+skills/xiaohongshu-send/
+skills/xianyu-multi-agent/data/
+skills/ai-invest-agent/
+skills/frontend-slides/
+skills/product-design-system/
+skills/wechat-article-formatter/
+skills/xianyu-multi-agent/
+**/.clawhub/
+scripts/healthcheck_runtime.txt
 
 # 验证输出
 验证*/

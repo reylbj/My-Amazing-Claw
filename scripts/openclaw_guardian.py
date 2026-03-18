@@ -55,12 +55,17 @@ MODEL_PROBE_AGENT_ID = "guardian-probe"
 MODEL_PROBE_MESSAGE = "Reply with OK only."
 MODEL_PROBE_TIMEOUT_SECONDS = 90
 MODEL_PROBE_WORKSPACE = Path(tempfile.gettempdir()) / "openclaw-guardian-probe"
+MAIN_WEBCHAT_SESSION_KEY = "agent:main:main"
+CHANNEL_DNS_LOOP_THRESHOLD = 6
+CHANNEL_TIMEOUT_LOOP_THRESHOLD = 6
 
 PATTERN_UNKNOWN_READ = "Unknown system error -11"
 PATTERN_ABNORMAL_CLOSE = "gateway closed (1006 abnormal closure"
 PATTERN_FETCH_FAILED = "TypeError: fetch failed"
 PATTERN_MAX_ATTEMPTS = "web reconnect: max attempts reached"
 PATTERN_STALE_SOCKET = "health-monitor: restarting (reason: stale-socket)"
+PATTERN_DNS_LOOKUP = "getaddrinfo ENOTFOUND"
+PATTERN_CONNECT_TIMEOUT = "UND_ERR_CONNECT_TIMEOUT"
 PATTERN_MODEL_OVERLOADED = "The AI service is temporarily overloaded"
 PATTERN_MODEL_HTTP_504 = "The AI service is temporarily unavailable (HTTP 504)"
 PATTERN_MODEL_FAILOVER = "FailoverError:"
@@ -83,6 +88,7 @@ RUNTIME_PATCH_GLOBS = (
 class IncidentSummary:
     counts: dict[str, int]
     latest: dict[str, str | None]
+    events: dict[str, list[str]]
 
 
 @dataclass
@@ -170,6 +176,16 @@ def save_json(path: Path, payload) -> None:
         handle.write("\n")
 
 
+def backup_file(path: Path, *, suffix: str) -> Path | None:
+    if not path.exists():
+        return None
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = OPENCLAW_BACKUP_DIR / f"{stamp}-{suffix}"
+    ensure_parent(backup_path)
+    backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    return backup_path
+
+
 def deep_set(target: dict, keys: Sequence[str], value) -> None:
     current = target
     for key in keys[:-1]:
@@ -247,6 +263,164 @@ def normalize_model_keys(model_id: str, provider: str | None = None) -> set[str]
 
 def session_store_path(agent_id: str) -> Path:
     return OPENCLAW_HOME / "agents" / agent_id / "sessions" / "sessions.json"
+
+
+def session_file_path(agent_id: str, session_id: str) -> Path:
+    return OPENCLAW_HOME / "agents" / agent_id / "sessions" / f"{session_id}.jsonl"
+
+
+def read_session_header(path: Path) -> tuple[dict | None, str | None]:
+    if not path.exists():
+        return None, "missing-session-file"
+
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            first_line = handle.readline().strip()
+    except OSError as exc:
+        return None, f"read-failed:{exc}"
+
+    if not first_line:
+        return None, "empty-session-file"
+
+    try:
+        payload = json.loads(first_line)
+    except json.JSONDecodeError:
+        return None, "invalid-session-header-json"
+
+    if not isinstance(payload, dict):
+        return None, "invalid-session-header-type"
+
+    return payload, None
+
+
+def inspect_main_webchat_session(*, agent_id: str = "main") -> dict[str, object]:
+    store_path = session_store_path(agent_id)
+    store = load_json(store_path, {})
+    if not isinstance(store, dict):
+        return {
+            "healthy": False,
+            "reason": "invalid-session-store",
+            "storePath": str(store_path),
+        }
+
+    entry = store.get(MAIN_WEBCHAT_SESSION_KEY)
+    if entry is None:
+        return {
+            "healthy": True,
+            "present": False,
+            "storePath": str(store_path),
+        }
+    if not isinstance(entry, dict):
+        return {
+            "healthy": False,
+            "reason": "invalid-main-entry",
+            "storePath": str(store_path),
+        }
+
+    session_id = str(entry.get("sessionId") or "").strip()
+    session_file_raw = str(entry.get("sessionFile") or "").strip()
+    session_file = Path(session_file_raw) if session_file_raw else session_file_path(agent_id, session_id)
+    if not session_id:
+        return {
+            "healthy": False,
+            "reason": "missing-session-id",
+            "storePath": str(store_path),
+            "sessionFile": str(session_file),
+        }
+
+    if session_file.name != f"{session_id}.jsonl":
+        return {
+            "healthy": False,
+            "reason": "session-file-name-mismatch",
+            "storePath": str(store_path),
+            "sessionId": session_id,
+            "sessionFile": str(session_file),
+        }
+
+    header, error = read_session_header(session_file)
+    if error is not None:
+        return {
+            "healthy": False,
+            "reason": error,
+            "storePath": str(store_path),
+            "sessionId": session_id,
+            "sessionFile": str(session_file),
+            "lockFile": str(session_file.with_suffix(session_file.suffix + ".lock")),
+        }
+
+    header_type = str(header.get("type") or "").strip()
+    header_id = str(header.get("id") or "").strip()
+    if header_type != "session":
+        return {
+            "healthy": False,
+            "reason": "invalid-session-header-record",
+            "storePath": str(store_path),
+            "sessionId": session_id,
+            "sessionFile": str(session_file),
+            "headerType": header_type or None,
+            "headerId": header_id or None,
+            "lockFile": str(session_file.with_suffix(session_file.suffix + ".lock")),
+        }
+    if header_id != session_id:
+        return {
+            "healthy": False,
+            "reason": "session-header-id-mismatch",
+            "storePath": str(store_path),
+            "sessionId": session_id,
+            "sessionFile": str(session_file),
+            "headerId": header_id or None,
+            "lockFile": str(session_file.with_suffix(session_file.suffix + ".lock")),
+        }
+
+    return {
+        "healthy": True,
+        "present": True,
+        "storePath": str(store_path),
+        "sessionId": session_id,
+        "sessionFile": str(session_file),
+    }
+
+
+def repair_main_webchat_session(*, agent_id: str = "main", dry_run: bool) -> dict[str, object]:
+    health = inspect_main_webchat_session(agent_id=agent_id)
+    if health.get("healthy"):
+        return {"changed": False, "health": health}
+
+    store_path = session_store_path(agent_id)
+    store = load_json(store_path, {})
+    if not isinstance(store, dict):
+        raise ValueError(f"invalid session store: {store_path}")
+
+    removed = MAIN_WEBCHAT_SESSION_KEY in store
+    lock_file = str(health.get("lockFile") or "").strip()
+    lock_path = Path(lock_file) if lock_file else None
+    if dry_run:
+        return {
+            "changed": removed or bool(lock_path and lock_path.exists()),
+            "health": health,
+            "dryRun": True,
+        }
+
+    backup_path = None
+    if removed:
+        backup_path = backup_file(store_path, suffix=f"{agent_id}-sessions.json.bak")
+        del store[MAIN_WEBCHAT_SESSION_KEY]
+        save_json(store_path, store)
+
+    lock_removed = False
+    if lock_path and lock_path.exists():
+        try:
+            lock_path.unlink()
+            lock_removed = True
+        except OSError:
+            lock_removed = False
+
+    return {
+        "changed": removed or lock_removed,
+        "health": health,
+        "backupPath": str(backup_path) if backup_path else None,
+        "lockRemoved": lock_removed,
+    }
 
 
 def prune_model_sessions(
@@ -676,8 +850,11 @@ def collect_recent_incidents(paths: Iterable[Path], *, lookback_minutes: int) ->
         "fetch_failed": 0,
         "max_attempts": 0,
         "stale_socket": 0,
+        "dns_lookup": 0,
+        "transport_timeout": 0,
     }
     latest = {key: None for key in counts}
+    events = {key: [] for key in counts}
 
     for path in paths:
         for raw_line in tail_lines(path):
@@ -692,20 +869,38 @@ def collect_recent_incidents(paths: Iterable[Path], *, lookback_minutes: int) ->
             if PATTERN_UNKNOWN_READ in line:
                 counts["unknown_read"] += 1
                 latest["unknown_read"] = timestamp.isoformat()
+                events["unknown_read"].append(timestamp.isoformat())
             if PATTERN_ABNORMAL_CLOSE in line:
                 counts["abnormal_close"] += 1
                 latest["abnormal_close"] = timestamp.isoformat()
+                events["abnormal_close"].append(timestamp.isoformat())
             if PATTERN_FETCH_FAILED in line:
                 counts["fetch_failed"] += 1
                 latest["fetch_failed"] = timestamp.isoformat()
+                events["fetch_failed"].append(timestamp.isoformat())
             if PATTERN_MAX_ATTEMPTS in line:
                 counts["max_attempts"] += 1
                 latest["max_attempts"] = timestamp.isoformat()
+                events["max_attempts"].append(timestamp.isoformat())
             if PATTERN_STALE_SOCKET in line:
                 counts["stale_socket"] += 1
                 latest["stale_socket"] = timestamp.isoformat()
+                events["stale_socket"].append(timestamp.isoformat())
+            if PATTERN_DNS_LOOKUP in line:
+                counts["dns_lookup"] += 1
+                latest["dns_lookup"] = timestamp.isoformat()
+                events["dns_lookup"].append(timestamp.isoformat())
+            if PATTERN_DNS_LOOKUP not in line and (
+                PATTERN_CONNECT_TIMEOUT in line
+                or 'statusCode":408' in line
+                or "status 408" in line
+                or "Request Time-out" in line
+            ):
+                counts["transport_timeout"] += 1
+                latest["transport_timeout"] = timestamp.isoformat()
+                events["transport_timeout"].append(timestamp.isoformat())
 
-    return IncidentSummary(counts=counts, latest=latest)
+    return IncidentSummary(counts=counts, latest=latest, events=events)
 
 
 def collect_recent_model_failures(paths: Iterable[Path], *, lookback_minutes: int) -> ModelFailureSummary:
@@ -897,6 +1092,17 @@ def latest_incident_after(summary: IncidentSummary, handled_after: datetime | No
     if handled_after is None:
         return True
     return latest > handled_after
+
+
+def incident_count_after(summary: IncidentSummary, handled_after: datetime | None, key: str) -> int:
+    total = 0
+    for value in summary.events.get(key, []):
+        timestamp = parse_iso(value)
+        if timestamp is None:
+            continue
+        if handled_after is None or timestamp > handled_after:
+            total += 1
+    return total
 
 
 def load_model_routing() -> dict[str, object]:
@@ -1331,6 +1537,7 @@ def guardian_status_payload() -> dict:
     status_output = load_openclaw_status()
     incidents = collect_recent_incidents(recent_log_paths(), lookback_minutes=INCIDENT_LOOKBACK_MINUTES)
     model_failures = collect_recent_model_failures(recent_log_paths(), lookback_minutes=MODEL_FAILURE_LOOKBACK_MINUTES)
+    main_session = inspect_main_webchat_session()
     try:
         model_routing = load_model_routing()
     except RuntimeError as exc:
@@ -1342,6 +1549,7 @@ def guardian_status_payload() -> dict:
         "whatsapp_linked": whatsapp_linked(status_output),
         "incident_counts": incidents.counts,
         "incident_latest": incidents.latest,
+        "main_webchat_session": main_session,
         "model_routing": model_routing,
         "model_failover": state.get("model_failover", {}),
         "model_failure_counts": model_failures.counts,
@@ -1358,6 +1566,7 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
     handled_after = parse_iso(state.get("handled_through_ts"))
     incidents = collect_recent_incidents(recent_log_paths(), lookback_minutes=INCIDENT_LOOKBACK_MINUTES)
     status_output = load_openclaw_status()
+    main_session_health = inspect_main_webchat_session()
     try:
         model_handled, model_code, model_payload = handle_model_failover(state=state, dry_run=dry_run, verbose=verbose)
     except RuntimeError as exc:
@@ -1383,8 +1592,14 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
         reasons.append("gateway-fetch-failed")
     if latest_incident_after(incidents, handled_after, "max_attempts"):
         reasons.append("whatsapp-max-retry")
-    if incidents.counts["stale_socket"] >= 3 and latest_incident_after(incidents, handled_after, "stale_socket"):
+    if incident_count_after(incidents, handled_after, "stale_socket") >= 3 and latest_incident_after(incidents, handled_after, "stale_socket"):
         reasons.append("whatsapp-stale-socket-loop")
+    if not bool(main_session_health.get("healthy", True)):
+        reasons.append("main-webchat-session-corrupt")
+    if incident_count_after(incidents, handled_after, "dns_lookup") >= CHANNEL_DNS_LOOP_THRESHOLD and latest_incident_after(incidents, handled_after, "dns_lookup"):
+        reasons.append("channel-dns-loop")
+    if incident_count_after(incidents, handled_after, "transport_timeout") >= CHANNEL_TIMEOUT_LOOP_THRESHOLD and latest_incident_after(incidents, handled_after, "transport_timeout"):
+        reasons.append("channel-timeout-loop")
 
     payload = {
         "listener_up": is_listener_up(),
@@ -1392,6 +1607,7 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
         "whatsapp_linked": whatsapp_linked(status_output),
         "reasons": reasons,
         "incident_counts": incidents.counts,
+        "main_webchat_session": main_session_health,
         "model": model_payload,
     }
     if verbose:
@@ -1408,7 +1624,8 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
 
     last_restart_at = parse_iso(state.get("last_restart_at"))
     if (
-        not force_restart
+        "main-webchat-session-corrupt" not in reasons
+        and not force_restart
         and last_restart_at is not None
         and (now - last_restart_at).total_seconds() < RESTART_COOLDOWN_SECONDS
     ):
@@ -1423,6 +1640,14 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
         log_line(f"guardian check: would restart for {', '.join(reasons)}", also_stdout=verbose)
         save_guardian_state(state)
         return 0
+
+    if "main-webchat-session-corrupt" in reasons:
+        repair_result = repair_main_webchat_session(dry_run=False)
+        payload["main_webchat_repair"] = repair_result
+        log_line(
+            f"guardian action: repaired main webchat session ({repair_result['health'].get('reason', 'unknown')})",
+            also_stdout=verbose,
+        )
 
     if not stable_restart(verbose=verbose):
         record_restart_state(state, now=now, reasons=reasons)
@@ -1481,11 +1706,51 @@ await processForRoute(msg, route, groupHistoryKey);
         save_json(tmp_config, config)
     summary = collect_recent_incidents([], lookback_minutes=5)
     assert summary.counts["unknown_read"] == 0
+    assert summary.counts["dns_lookup"] == 0
     assert normalize_fallback_chain("primary", ["", "primary", "backup", "backup", "secondary"]) == ["backup", "secondary"]
     assert model_identity_matches("api123/claude-sonnet-4-6", "claude-sonnet-4-6")
     assert not model_identity_matches("api123/claude-sonnet-4-6", "openai/gpt-5")
     assert normalize_model_keys("claude-sonnet-4-6", "api123") == {"claude-sonnet-4-6", "api123/claude-sonnet-4-6"}
     assert normalize_model_keys("api123/claude-sonnet-4-6") == {"api123/claude-sonnet-4-6", "claude-sonnet-4-6"}
+    with tempfile.TemporaryDirectory() as tmp:
+        incident_log = Path(tmp) / "incidents.log"
+        incident_log.write_text(
+            '\n'.join(
+                [
+                    '[2026-03-17T19:08:41+00:00] [whatsapp] channel exited {"statusCode":408,"message":"Request Time-out"}',
+                    '[2026-03-17T19:08:42+00:00] [wecom] WebSocket error: getaddrinfo ENOTFOUND openws.work.weixin.qq.com',
+                    '[2026-03-17T19:08:43+00:00] [telegram] fetch fallback: enabling sticky IPv4-only dispatcher (codes=UND_ERR_CONNECT_TIMEOUT)',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        incident_summary = collect_recent_incidents([incident_log], lookback_minutes=10_000)
+        assert incident_summary.counts["dns_lookup"] == 1
+        assert incident_summary.counts["transport_timeout"] == 2
+    with tempfile.TemporaryDirectory() as tmp:
+        sessions_dir = Path(tmp) / "agents" / "main" / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        broken_session = sessions_dir / "broken.jsonl"
+        broken_session.write_text('{"type":"message","id":"oops"}\n', encoding="utf-8")
+        broken_store = sessions_dir / "sessions.json"
+        save_json(
+            broken_store,
+            {
+                MAIN_WEBCHAT_SESSION_KEY: {
+                    "sessionId": "broken",
+                    "sessionFile": str(broken_session),
+                }
+            },
+        )
+        original_home = globals()["OPENCLAW_HOME"]
+        try:
+            globals()["OPENCLAW_HOME"] = Path(tmp)
+            session_health = inspect_main_webchat_session()
+            assert session_health["healthy"] is False
+            assert session_health["reason"] == "invalid-session-header-record"
+        finally:
+            globals()["OPENCLAW_HOME"] = original_home
     reset_sample = {
         "model_failover": {
             "active": True,

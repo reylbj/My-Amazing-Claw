@@ -74,25 +74,37 @@ def load_json(path: Path) -> Dict[str, Any]:
 def normalize_payload(data: Dict[str, Any]) -> Dict[str, Any]:
     content = data.get("content")
     if content is None:
-        content = data.get("description", "")
+        content = data.get("description")
+    if content is None:
+        content = data.get("desc", "")
 
     images = data.get("images")
     if images is None:
         images = data.get("image_urls", [])
 
+    tags = data.get("tags")
+    if tags is None:
+        tags = data.get("topics")
+    if tags is None:
+        tags = data.get("hashtags", [])
+
+    visibility = data.get("visibility")
+    if visibility is None and "is_private" in data:
+        visibility = "仅自己可见" if bool(data.get("is_private")) else "公开可见"
+
     normalized = {
         "title": data.get("title", ""),
         "content": content,
         "images": images,
-        "tags": data.get("tags", []),
+        "tags": tags,
     }
 
     if "schedule_at" in data:
         normalized["schedule_at"] = data["schedule_at"]
     if "is_original" in data:
         normalized["is_original"] = data["is_original"]
-    if "visibility" in data:
-        normalized["visibility"] = data["visibility"]
+    if visibility is not None:
+        normalized["visibility"] = visibility
 
     return normalized
 
@@ -175,6 +187,8 @@ def validate_payload(payload: Dict[str, Any], check_urls: bool = False) -> Tuple
                 errors.append(f"tags[{i}] 必须为非空字符串")
         if len(tags) > 10:
             warnings.append(f"tags 数量为 {len(tags)}，服务端会截断到前 10 个")
+    if isinstance(images, list) and len(images) > 7:
+        warnings.append(f"images 数量为 {len(images)}，当前链路建议控制在 7 张以内以提升稳定性")
 
     visibility = payload.get("visibility")
     if visibility is not None and visibility not in VISIBILITY_SET:

@@ -24,20 +24,92 @@
 """
 
 import argparse
+import asyncio
 import os
 import sys
 import json
-import re
+import tempfile
+import subprocess
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 try:
-    from dotenv import load_dotenv
     import requests
 except ImportError as e:
     print(f"缺少依赖: {e}")
-    print("请运行: pip install python-dotenv requests")
+    print("请运行: pip install requests")
     sys.exit(1)
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+
+MAX_IMAGE_COUNT = 8
+
+
+def workspace_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def openclaw_publish_script() -> Path:
+    return workspace_root() / "scripts" / "xiaohongshu_send.py"
+
+
+def default_browser_profile_dir() -> Path:
+    return Path.home() / "xhs_workspace" / "xiaohongshu-send" / "profile-persistent"
+
+
+def default_browser_cookies_path() -> Path:
+    return Path.home() / "xhs_workspace" / "xiaohongshu-send" / "data" / "cookies.json"
+
+
+def load_browser_cookies(path: Path) -> list[dict[str, Any]]:
+    with path.open('r', encoding='utf-8') as handle:
+        raw = json.load(handle)
+    if not isinstance(raw, list):
+        raise ValueError(f"Cookie 文件格式不正确: {path}")
+    return raw
+
+
+def build_note_body(desc: str, tags: Optional[List[str]]) -> str:
+    body = (desc or '').strip()
+    if body and '#' in body:
+        return body
+
+    normalized_tags = [tag.strip().lstrip('#') for tag in (tags or []) if tag and tag.strip()]
+    if normalized_tags:
+        suffix = ' '.join(f"#{tag}" for tag in normalized_tags[:10])
+        return f"{body}\n\n{suffix}".strip()
+    return body
+
+
+def load_payload_file(path: str) -> Dict[str, Any]:
+    with open(path, 'r', encoding='utf-8') as handle:
+        raw = json.load(handle)
+
+    title = raw.get('title') or ''
+    desc = raw.get('desc')
+    if desc is None:
+        desc = raw.get('content') or raw.get('description') or ''
+    images = raw.get('images') or raw.get('image_urls') or []
+    tags = raw.get('topics') or raw.get('tags') or []
+
+    is_private = bool(raw.get('is_private', False))
+    visibility = raw.get('visibility')
+    if visibility == '仅自己可见':
+        is_private = True
+    elif visibility == '公开可见':
+        is_private = False
+
+    return {
+        'title': title,
+        'desc': desc,
+        'images': images,
+        'tags': tags,
+        'is_private': is_private,
+    }
 
 
 def load_cookie() -> str:
@@ -51,7 +123,8 @@ def load_cookie() -> str:
     
     for env_path in env_paths:
         if env_path.exists():
-            load_dotenv(env_path)
+            if load_dotenv:
+                load_dotenv(env_path)
             break
     
     cookie = os.getenv('XHS_COOKIE')
@@ -103,6 +176,10 @@ def get_api_url() -> str:
 
 def validate_images(image_paths: List[str]) -> List[str]:
     """验证图片文件是否存在"""
+    if len(image_paths) > MAX_IMAGE_COUNT:
+        print(f"❌ 错误: 小红书单次最多发布 {MAX_IMAGE_COUNT} 张图片，当前 {len(image_paths)} 张")
+        sys.exit(1)
+
     valid_images = []
     for path in image_paths:
         if os.path.exists(path):
@@ -115,6 +192,312 @@ def validate_images(image_paths: List[str]) -> List[str]:
         sys.exit(1)
     
     return valid_images
+
+
+class McpPublisher:
+    """MCP 发布模式：复用 OpenClaw 当前小红书发布链路。"""
+
+    def __init__(self, base_url: str):
+        self.base_url = base_url.rstrip('/')
+
+    def init_client(self):
+        try:
+            resp = requests.get(f"{self.base_url}/health", timeout=5)
+        except requests.RequestException as exc:
+            print(f"❌ MCP 服务不可达: {exc}")
+            print("请先启动可见或无头的小红书 MCP 服务")
+            sys.exit(1)
+
+        if resp.status_code != 200:
+            print(f"❌ MCP 健康检查失败: HTTP {resp.status_code}")
+            sys.exit(1)
+
+    def publish(self, title: str, desc: str, images: List[str],
+                is_private: bool = False, post_time: str = None, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+        if post_time:
+            print("❌ MCP 模式暂不支持本脚本内的定时发布参数")
+            raise SystemExit(1)
+
+        payload = {
+            "title": title,
+            "desc": desc,
+            "content": desc,
+            "topics": tags or [],
+            "type": "normal",
+            "is_private": is_private,
+            "images": images,
+        }
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            payload_path = handle.name
+
+        cmd = [
+            "python3",
+            str(openclaw_publish_script()),
+            "publish",
+            "--payload",
+            payload_path,
+            "--base-url",
+            self.base_url,
+            "--timeout",
+            "600",
+        ]
+        try:
+            result = subprocess.run(cmd, text=True, capture_output=True, check=False)
+            if result.stdout.strip():
+                print(result.stdout.rstrip())
+            if result.stderr.strip():
+                print(result.stderr.rstrip(), file=sys.stderr)
+            if result.returncode != 0:
+                raise RuntimeError("MCP 发布失败")
+            return json.loads(result.stdout)
+        finally:
+            try:
+                os.unlink(payload_path)
+            except OSError:
+                pass
+
+
+class BrowserPublisher:
+    """浏览器发布模式：使用固定复用的本地 Chrome profile 走可视化图文发布。"""
+
+    def __init__(
+        self,
+        profile_dir: str,
+        cookies_path: Optional[str] = None,
+        headless: bool = False,
+        hold_seconds: int = 5,
+    ):
+        self.profile_dir = Path(profile_dir).expanduser()
+        self.cookies_path = Path(cookies_path).expanduser() if cookies_path else None
+        self.headless = headless
+        self.hold_seconds = hold_seconds
+
+    def init_client(self):
+        try:
+            from playwright.async_api import async_playwright  # noqa: F401
+        except ImportError:
+            print("❌ 错误: 缺少 playwright 依赖")
+            print("请运行: pip install playwright && playwright install chrome")
+            sys.exit(1)
+
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        if self.cookies_path and not self.cookies_path.exists():
+            print(f"❌ 错误: Cookie 文件不存在: {self.cookies_path}")
+            sys.exit(1)
+
+    async def _choose_image_tab(self, page) -> None:
+        tabs = page.locator('.header-tabs .creator-tab')
+        count = await tabs.count()
+        for index in range(count):
+            tab = tabs.nth(index)
+            text = (await tab.inner_text()).strip()
+            if text != '上传图文':
+                continue
+            box = await tab.bounding_box()
+            if box and box['x'] >= 0 and box['y'] >= 0:
+                await tab.click(force=True)
+                await page.wait_for_function(
+                    "() => document.body.innerText.includes('上传图片，或写文字生成图片')",
+                    timeout=15000,
+                )
+                return
+        raise RuntimeError("未找到可见的“上传图文”入口")
+
+    async def _open_publish_page(self, page, context) -> None:
+        print("  -> 打开创作中心")
+        if self.cookies_path:
+            await context.add_cookies(load_browser_cookies(self.cookies_path))
+
+        await page.goto(
+            'https://creator.xiaohongshu.com/publish/publish?source=official',
+            wait_until='networkidle',
+            timeout=60000,
+        )
+        if 'login' in page.url:
+            raise RuntimeError("进入了登录页，请先更新 ~/xhs_workspace/xiaohongshu-send/data/cookies.json")
+
+    async def _upload_images(self, page, images: List[str]) -> None:
+        print("  -> 上传图片")
+        upload_button = page.get_by_role('button', name='上传图片')
+        async with page.expect_file_chooser() as chooser_info:
+            await upload_button.click(force=True)
+        chooser = await chooser_info.value
+        await chooser.set_files(images)
+
+        wait_timeout = max(90000, len(images) * 15000)
+        await page.locator('input[placeholder="填写标题会有更多赞哦"]').first.wait_for(
+            state='visible',
+            timeout=wait_timeout,
+        )
+        await page.locator('div.tiptap.ProseMirror[contenteditable="true"]').first.wait_for(
+            state='visible',
+            timeout=wait_timeout,
+        )
+
+    async def _fill_content(self, page, title: str, body: str) -> None:
+        print("  -> 填写标题和正文")
+        title_input = page.locator('input[placeholder="填写标题会有更多赞哦"]').first
+        await title_input.fill(title[:20])
+
+        editor = page.locator('div.tiptap.ProseMirror[contenteditable="true"]').first
+        await editor.click()
+        await page.keyboard.press('Meta+A')
+        await page.keyboard.press('Backspace')
+        await page.keyboard.insert_text(body)
+
+    async def _set_visibility(self, page, is_private: bool) -> None:
+        if not is_private:
+            return
+
+        print("  -> 设置可见范围为仅自己可见")
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await page.wait_for_timeout(500)
+        select = page.locator('.permission-card-select').first
+        current = page.locator('.permission-card-select .d-select-description').first
+        current_text = ((await current.inner_text()).strip()) if await current.count() else ''
+        if current_text == '仅自己可见':
+            return
+
+        await select.click(force=True)
+        await page.wait_for_timeout(500)
+        await page.evaluate(
+            """() => {
+                const names = [...document.querySelectorAll('.custom-option .name')];
+                const target = names.find((node) => node.textContent && node.textContent.trim() === '仅自己可见');
+                if (!target) throw new Error('未找到“仅自己可见”选项');
+                target.click();
+            }"""
+        )
+        await page.wait_for_function(
+            "() => document.body.innerText.includes('仅自己可见')",
+            timeout=5000,
+        )
+
+    async def _click_publish(self, page) -> Dict[str, Any]:
+        print("  -> 点击发布")
+        publish_responses: list[tuple[int, str]] = []
+
+        def handle_response(resp):
+            if resp.request.method != 'POST':
+                return
+            lowered = resp.url.lower()
+            if any(key in lowered for key in ('publish', 'note', 'image', 'save')):
+                publish_responses.append((resp.status, resp.url))
+
+        page.on('response', handle_response)
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await page.wait_for_timeout(2000)
+        publish_button = page.get_by_role('button', name='发布').last
+        button_state = await publish_button.evaluate(
+            """el => ({
+                disabled: !!el.disabled,
+                className: el.className,
+                text: (el.textContent || '').trim(),
+                rect: (() => {
+                    const box = el.getBoundingClientRect();
+                    return {x: box.x, y: box.y, width: box.width, height: box.height};
+                })(),
+            })"""
+        )
+        print(f"    发布按钮状态: {button_state}")
+        await publish_button.scroll_into_view_if_needed()
+        await page.wait_for_timeout(2000)
+        await publish_button.hover()
+        await page.wait_for_timeout(1000)
+        await publish_button.click()
+
+        start_url = page.url
+        last_url = start_url
+        for _ in range(120):
+            await page.wait_for_timeout(1000)
+            body = await page.locator('body').inner_text()
+            if page.url != last_url:
+                print(f"    页面变化: {last_url} -> {page.url}")
+                last_url = page.url
+            if '发布成功' in body or '已发布' in body:
+                return {'status': 'success', 'url': page.url}
+            if '验证码' in body or '登录' in page.url:
+                raise RuntimeError("发布时触发了登录/验证，请检查 Cookie 或手动过一次验证")
+            if publish_responses and any(status < 400 for status, _ in publish_responses):
+                return {'status': 'success', 'url': page.url}
+        if publish_responses:
+            formatted = ', '.join(f"{status} {url}" for status, url in publish_responses[-8:])
+            raise RuntimeError(f"点击发布后未观察到成功提示，最近回执: {formatted}")
+        raise RuntimeError(f"点击发布后未观察到成功提示或发布接口回执，停留页面: {last_url}（起始页: {start_url}）")
+
+    async def _publish_async(
+        self,
+        title: str,
+        desc: str,
+        images: List[str],
+        is_private: bool = False,
+        post_time: str = None,
+        tags: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        if post_time:
+            raise RuntimeError("浏览器模式暂不支持定时发布")
+
+        from playwright.async_api import async_playwright
+
+        note_body = build_note_body(desc, tags)
+        async with async_playwright() as p:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=str(self.profile_dir),
+                channel='chrome',
+                headless=self.headless,
+                viewport={'width': 1440, 'height': 1600},
+                args=['--disable-blink-features=AutomationControlled'],
+            )
+            page = context.pages[0] if context.pages else await context.new_page()
+
+            try:
+                await self._open_publish_page(page, context)
+                await self._choose_image_tab(page)
+                await self._upload_images(page, images)
+                await self._fill_content(page, title, note_body)
+                await self._set_visibility(page, is_private)
+                result = await self._click_publish(page)
+                print("\n✨ 笔记发布流程已提交")
+                print(f"  🔗 当前页面: {result.get('url', page.url)}")
+                return result
+            except Exception:
+                error_shot = Path('/tmp/xhs_browser_publish_error.png')
+                await page.screenshot(path=str(error_shot), full_page=True)
+                print(f"📸 失败截图: {error_shot}")
+                raise
+            finally:
+                await page.wait_for_timeout(max(self.hold_seconds, 1) * 1000)
+                await context.close()
+
+    def publish(
+        self,
+        title: str,
+        desc: str,
+        images: List[str],
+        is_private: bool = False,
+        post_time: str = None,
+        tags: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        print(f"\n🚀 准备发布笔记（浏览器模式）...")
+        print(f"  📌 标题: {title}")
+        print(f"  📝 描述: {desc[:50]}..." if len(desc) > 50 else f"  📝 描述: {desc}")
+        print(f"  🖼️ 图片数量: {len(images)}")
+        print(f"  📂 Profile: {self.profile_dir}")
+        if self.cookies_path:
+            print(f"  🍪 Cookie: {self.cookies_path}")
+
+        return asyncio.run(
+            self._publish_async(
+                title=title,
+                desc=desc,
+                images=images,
+                is_private=is_private,
+                post_time=post_time,
+                tags=tags,
+            )
+        )
 
 
 class LocalPublisher:
@@ -154,8 +537,8 @@ class LocalPublisher:
             print(f"⚠️ 无法获取用户信息: {e}")
             return None
     
-    def publish(self, title: str, desc: str, images: List[str], 
-                is_private: bool = False, post_time: str = None) -> Dict[str, Any]:
+    def publish(self, title: str, desc: str, images: List[str],
+                is_private: bool = False, post_time: str = None, tags: Optional[List[str]] = None) -> Dict[str, Any]:
         """发布图文笔记"""
         print(f"\n🚀 准备发布笔记（本地模式）...")
         print(f"  📌 标题: {title}")
@@ -267,8 +650,8 @@ class ApiPublisher:
             print(f"⚠️ 无法获取用户信息: {e}")
             return None
     
-    def publish(self, title: str, desc: str, images: List[str], 
-                is_private: bool = False, post_time: str = None) -> Dict[str, Any]:
+    def publish(self, title: str, desc: str, images: List[str],
+                is_private: bool = False, post_time: str = None, tags: Optional[List[str]] = None) -> Dict[str, Any]:
         """发布图文笔记"""
         print(f"\n🚀 准备发布笔记（API 模式）...")
         print(f"  📌 标题: {title}")
@@ -331,8 +714,11 @@ def main():
 '''
     )
     parser.add_argument(
+        '--payload',
+        help='直接读取 payload JSON（包含 title/desc 或 content/images/topics/is_private）'
+    )
+    parser.add_argument(
         '--title', '-t',
-        required=True,
         help='笔记标题（不超过20字）'
     )
     parser.add_argument(
@@ -343,7 +729,6 @@ def main():
     parser.add_argument(
         '--images', '-i',
         nargs='+',
-        required=True,
         help='图片文件路径（可以多个）'
     )
     parser.add_argument(
@@ -367,6 +752,42 @@ def main():
         help='API 服务地址（默认: http://localhost:5005）'
     )
     parser.add_argument(
+        '--mcp-mode',
+        action='store_true',
+        help='使用 OpenClaw 当前的小红书 MCP 发布链路'
+    )
+    parser.add_argument(
+        '--browser-mode',
+        action='store_true',
+        help='使用固定复用的本地 Chrome profile 走可视化浏览器发布链路'
+    )
+    parser.add_argument(
+        '--mcp-base-url',
+        default='http://127.0.0.1:18060',
+        help='MCP 服务地址（默认: http://127.0.0.1:18060）'
+    )
+    parser.add_argument(
+        '--browser-profile-dir',
+        default=str(default_browser_profile_dir()),
+        help='浏览器模式使用的固定 profile 目录'
+    )
+    parser.add_argument(
+        '--cookies-path',
+        default=str(default_browser_cookies_path()),
+        help='浏览器模式使用的 Cookie JSON 文件路径'
+    )
+    parser.add_argument(
+        '--browser-headless',
+        action='store_true',
+        help='浏览器模式下使用无头 Chrome（默认关闭，便于本地观察）'
+    )
+    parser.add_argument(
+        '--hold-seconds',
+        type=int,
+        default=5,
+        help='浏览器模式结束前保留窗口的秒数，默认 5'
+    )
+    parser.add_argument(
         '--dry-run',
         action='store_true',
         help='仅验证，不实际发布'
@@ -374,36 +795,73 @@ def main():
     
     args = parser.parse_args()
     
+    title = args.title
+    desc = args.desc
+    images = args.images
+    tags: List[str] = []
+    is_private = args.private
+
+    if args.payload:
+        payload = load_payload_file(args.payload)
+        title = payload['title']
+        desc = payload['desc']
+        images = payload['images']
+        tags = payload['tags']
+        is_private = payload['is_private']
+
+    if not title:
+        print("❌ 错误: 需要提供 --title 或 --payload")
+        sys.exit(1)
+    if not images:
+        print("❌ 错误: 需要提供 --images 或在 --payload 中包含 images")
+        sys.exit(1)
+
     # 验证标题长度
-    if len(args.title) > 20:
+    if len(title) > 20:
         print(f"⚠️ 警告: 标题超过20字，将被截断")
-        args.title = args.title[:20]
-    
-    # 加载 Cookie
-    cookie = load_cookie()
-    
-    # 验证 Cookie 格式
-    validate_cookie(cookie)
+        title = title[:20]
     
     # 验证图片
-    valid_images = validate_images(args.images)
+    valid_images = validate_images(images)
     
     if args.dry_run:
         print("\n🔍 验证模式 - 不会实际发布")
-        print(f"  📌 标题: {args.title}")
-        print(f"  📝 描述: {args.desc}")
+        print(f"  📌 标题: {title}")
+        print(f"  📝 描述: {desc}")
         print(f"  🖼️ 图片: {valid_images}")
-        print(f"  🔒 私密: {args.private}")
+        print(f"  🏷️ 标签: {tags}")
+        print(f"  🔒 私密: {is_private}")
         print(f"  ⏰ 定时: {args.post_time or '立即发布'}")
-        print(f"  📡 模式: {'API' if args.api_mode else '本地'}")
+        if args.browser_mode:
+            mode_name = f"Browser ({args.browser_profile_dir})"
+        elif args.mcp_mode:
+            mode_name = f"MCP ({args.mcp_base_url})"
+        else:
+            mode_name = 'API' if args.api_mode else '本地'
+        print(f"  📡 模式: {mode_name}")
         print("\n✅ 验证通过，可以发布")
         return
-    
-    # 选择发布方式
-    if args.api_mode:
-        publisher = ApiPublisher(cookie, args.api_url)
+
+    if args.browser_mode:
+        publisher = BrowserPublisher(
+            profile_dir=args.browser_profile_dir,
+            cookies_path=args.cookies_path,
+            headless=args.browser_headless,
+            hold_seconds=args.hold_seconds,
+        )
+    elif args.mcp_mode:
+        publisher = McpPublisher(args.mcp_base_url)
     else:
-        publisher = LocalPublisher(cookie)
+        # 加载 Cookie
+        cookie = load_cookie()
+        # 验证 Cookie 格式
+        validate_cookie(cookie)
+
+        # 选择发布方式
+        if args.api_mode:
+            publisher = ApiPublisher(cookie, args.api_url)
+        else:
+            publisher = LocalPublisher(cookie)
     
     # 初始化客户端
     publisher.init_client()
@@ -411,13 +869,15 @@ def main():
     # 发布笔记
     try:
         publisher.publish(
-            title=args.title,
-            desc=args.desc,
+            title=title,
+            desc=desc,
             images=valid_images,
-            is_private=args.private,
-            post_time=args.post_time
+            is_private=is_private,
+            post_time=args.post_time,
+            tags=tags
         )
     except Exception as e:
+        print(f"\n❌ 发布失败: {e}")
         sys.exit(1)
 
 

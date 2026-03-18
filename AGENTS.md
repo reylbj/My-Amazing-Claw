@@ -12,6 +12,7 @@
 通过标准:`RPC probe: ok`+Dashboard`http://127.0.0.1:18789/`
 禁止:手工kill、stop+start连击
 复位:restart→install --force→restart
+guardian自愈:主`webchat`坏session会自动清索引+稳定重启; 连续`DNS/408`抖动达阈值才恢复, 避免单次波动误重启
 
 ## 记忆
 统一写`MEMORY.md`(不再使用独立记忆目录)
@@ -49,9 +50,13 @@ python3 skills/小红书笔记技能包/scripts/render_xhs.py content.md -o /tmp
 # {"title":"...","content":"...","desc":"...","images":[...],"topics":[...],"type":"normal","is_private":false}
 
 # 5.发布
+# 5.发布(优先技能内可视化浏览器链路)
+python3 skills/小红书笔记技能包/scripts/publish_xhs.py --payload /tmp/xhs/payload.json --browser-mode --browser-profile-dir ~/xhs_workspace/xiaohongshu-send/profile-persistent --cookies-path ~/xhs_workspace/xiaohongshu-send/data/cookies.json
+
+# 旧MCP链路仅保留诊断/兼容
 python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --base-url http://127.0.0.1:18060
 ```
-要点:Cookie主账号;图≤7张;payload含content;检查APP创作中心;扫码=Cookie失效
+要点:Cookie主账号;图≤8张;payload含content;默认先发仅自己可见;检查APP创作中心;扫码=Cookie失效;若要求本地可见操作，必须走`publish_xhs.py --browser-mode`
 
 ### 咸鱼运营官(`咸鱼运营`/`闲鱼运营`/`闲鱼发布`)
 路径:`skills/xianyu-multi-agent/`

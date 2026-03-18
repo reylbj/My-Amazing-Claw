@@ -18,6 +18,10 @@ log() {
   printf '[xhs-stable] %s\n' "$1"
 }
 
+ensure_runtime_dirs() {
+  mkdir -p "${DATA_DIR}" "${PROFILE_DIR}"
+}
+
 # 1. 确保Cookie文件正确链接
 ensure_cookie_link() {
   if [[ -f "${COOKIE_FILE}" ]]; then
@@ -48,10 +52,21 @@ ensure_cookie_link() {
 
 # 2. 清理可能导致崩溃的锁文件
 cleanup_locks() {
-  local lock_file="${PROFILE_DIR}/SingletonLock"
-  if [[ -f "${lock_file}" ]]; then
+  local locks=(
+    "${PROFILE_DIR}/SingletonLock"
+    "${PROFILE_DIR}/SingletonCookie"
+    "${PROFILE_DIR}/SingletonSocket"
+  )
+  local removed=0
+  local lock_file
+  for lock_file in "${locks[@]}"; do
+    if [[ -e "${lock_file}" ]]; then
+      rm -f "${lock_file}"
+      removed=1
+    fi
+  done
+  if [[ ${removed} -eq 1 ]]; then
     log "清理浏览器锁文件"
-    rm -f "${lock_file}"
   fi
 }
 
@@ -80,10 +95,16 @@ start_service() {
 # 5. 验证服务状态
 verify_service() {
   log "验证服务状态"
-  sleep 3
-
   local health_check
-  health_check=$(curl -fsS "http://127.0.0.1:18060/health" 2>/dev/null || echo "failed")
+  local attempt
+  health_check="failed"
+  for attempt in 1 2 3 4 5; do
+    sleep 2
+    health_check=$(curl -fsS --max-time 5 "http://127.0.0.1:18060/health" 2>/dev/null || echo "failed")
+    if [[ "${health_check}" != "failed" ]]; then
+      break
+    fi
+  done
 
   if [[ "${health_check}" == "failed" ]]; then
     log "❌ 健康检查失败"
@@ -94,7 +115,7 @@ verify_service() {
 
   # 检查登录状态
   local login_status
-  login_status=$(curl -fsS "http://127.0.0.1:18060/api/v1/login/status" 2>/dev/null || echo '{"data":{"is_logged_in":false}}')
+  login_status=$(curl -fsS --max-time 20 "http://127.0.0.1:18060/api/v1/login/status" 2>/dev/null || echo '{"data":{"is_logged_in":false}}')
 
   local is_logged_in
   is_logged_in=$(echo "${login_status}" | grep -o '"is_logged_in":[^,}]*' | cut -d':' -f2 || echo "false")
@@ -112,6 +133,8 @@ main() {
   log "=========================================="
   log "小红书MCP服务稳定启动"
   log "=========================================="
+
+  ensure_runtime_dirs
 
   # 步骤1: 确保Cookie正确
   if ! ensure_cookie_link; then

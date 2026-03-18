@@ -162,8 +162,15 @@ Node.js 参数与 Python 基本一致：`--output-dir/-o`、`--theme/-t`、`--mo
 使用发布脚本将生成的图片发布到小红书：
 
 ```bash
-python scripts/publish_xhs.py --title "笔记标题" --desc "笔记描述" --images card_1.png card_2.png cover.png
+python scripts/publish_xhs.py --title "笔记标题" --desc "笔记描述" --images cover.png card_1.png card_2.png
+python scripts/publish_xhs.py --payload payload.json --browser-mode --browser-profile-dir ~/xhs_workspace/xiaohongshu-send/profile-persistent --cookies-path ~/xhs_workspace/xiaohongshu-send/data/cookies.json
+python scripts/publish_xhs.py --payload payload.json --mcp-mode --mcp-base-url http://127.0.0.1:18060
 ```
+
+补充约束：
+- 单次最多 8 张独立图片，不走长图兜底
+- 在 OpenClaw 工作区内优先用 `--payload + --browser-mode` 复用固定 profile 的可视化浏览器发布链路
+- `--mcp-mode` 仅保留给旧链路诊断；当前多图稳定发布优先走浏览器模式
 
 **前置条件**：
 
