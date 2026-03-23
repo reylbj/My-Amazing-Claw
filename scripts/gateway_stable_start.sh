@@ -141,17 +141,53 @@ status_missing_service() {
   echo "$status_text" | has_match 'Service not installed|Service unit not found|Could not find service "ai\.openclaw\.gateway"'
 }
 
+dashboard_status() {
+  curl -sS -i --max-time 3 http://127.0.0.1:18789/ 2>/dev/null || true
+}
+
+dashboard_http_ok() {
+  local dashboard_text="$1"
+  echo "$dashboard_text" | has_match '^HTTP/1\.[01] 200'
+}
+
+dashboard_assets_missing() {
+  local dashboard_text="$1"
+  echo "$dashboard_text" | has_match 'Control UI assets not found'
+}
+
+dashboard_healthy() {
+  local dashboard_text="$1"
+  dashboard_http_ok "$dashboard_text" && ! dashboard_assets_missing "$dashboard_text"
+}
+
+verify_dashboard_or_fail() {
+  local dashboard_text
+
+  dashboard_text="$(dashboard_status)"
+  if dashboard_healthy "$dashboard_text"; then
+    ok "Dashboard 可访问 (http://127.0.0.1:18789/)"
+    return 0
+  fi
+
+  err "Dashboard 未就绪"
+  echo "$dashboard_text" | show_matches 'HTTP/|Control UI assets not found' || true
+  return 1
+}
+
 probe_until_stable() {
   local attempt=1
   local consecutive_ok=0
   local status_text
+  local dashboard_text
 
   while (( attempt <= STABLE_MAX_ATTEMPTS )); do
     status_text="$(gateway_status || true)"
+    dashboard_text="$(dashboard_status)"
 
     if status_has_expected_node22 "$status_text" && \
       status_probe_ok "$status_text" && \
-      ! status_in_warmup "$status_text"; then
+      ! status_in_warmup "$status_text" && \
+      dashboard_healthy "$dashboard_text"; then
       consecutive_ok=$((consecutive_ok + 1))
       info "稳定探针通过 ${consecutive_ok}/${STABLE_REQUIRED_OK}（第${attempt}次）"
       if (( consecutive_ok >= STABLE_REQUIRED_OK )); then
@@ -162,6 +198,7 @@ probe_until_stable() {
       consecutive_ok=0
       warn "网关尚未稳定（第${attempt}次），继续等待"
       echo "$status_text" | show_matches 'RPC probe|Warm-up|gateway closed|Runtime:|Command:' || true
+      echo "$dashboard_text" | show_matches 'HTTP/|Control UI assets not found' || true
     fi
 
     attempt=$((attempt + 1))
@@ -182,26 +219,31 @@ main() {
   if status_missing_service "$before_status"; then
     warn "检测到网关服务未安装，执行 install --force 修复"
     install_force_node22
+    repair_local_config
     before_status="$(gateway_status || true)"
   fi
 
   if ! status_has_expected_node22 "$before_status"; then
     warn "检测到网关运行时漂移，执行 install --force 修复"
     install_force_node22
+    repair_local_config
   fi
 
   restart_gateway
   if after_status="$(probe_until_stable)"; then
     verify_status_or_fail "$after_status"
+    verify_dashboard_or_fail
     ok "稳定启动完成（可安全新建会话）"
     exit 0
   fi
 
   warn "首次稳定化失败，执行二次 install+restart"
   install_force_node22
+  repair_local_config
   restart_gateway
   after_status="$(probe_until_stable)"
   verify_status_or_fail "$after_status"
+  verify_dashboard_or_fail
   ok "二次修复成功（可安全新建会话）"
 }
 

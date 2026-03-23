@@ -10,6 +10,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -33,6 +34,18 @@ GUARDIAN_LOG_FILE = OPENCLAW_LOG_DIR / "guardian.log"
 LAUNCH_AGENT_PATH = Path.home() / "Library" / "LaunchAgents" / "ai.openclaw.guardian.plist"
 DIST_DIR = Path.home() / ".npm-global" / "lib" / "node_modules" / "openclaw" / "dist"
 GATEWAY_STABLE_SCRIPT = ROOT_DIR / "scripts" / "gateway_stable_start.sh"
+NODE22_BIN = Path.home() / ".npm-global" / "lib" / "node_modules" / "node" / "bin" / "node"
+OPENCLAW_PACKAGE_ROOT = DIST_DIR.parent
+CONTROL_UI_DIR = DIST_DIR / "control-ui"
+CONTROL_UI_CACHE_DIR = OPENCLAW_HOME / "cache" / "control-ui"
+CONTROL_UI_FALLBACK_DIRS = (
+    CONTROL_UI_CACHE_DIR,
+    Path("/tmp/openclaw-source/dist/control-ui"),
+)
+HOST_OPENCLAW_LINK = OPENCLAW_HOME / "extensions" / "node_modules" / "openclaw"
+WEIXIN_PLUGIN_DIR = OPENCLAW_HOME / "extensions" / "openclaw-weixin"
+WECOM_PLUGIN_DIR = OPENCLAW_HOME / "extensions" / "wecom"
+HOST_PLUGIN_SDK_INDEX = OPENCLAW_PACKAGE_ROOT / "dist" / "plugin-sdk" / "index.js"
 
 EXPECTED_WEB_HEARTBEAT_SECONDS = 300
 EXPECTED_WEB_MESSAGE_TIMEOUT_MS = 24 * 60 * 60 * 1000
@@ -184,6 +197,33 @@ def backup_file(path: Path, *, suffix: str) -> Path | None:
     ensure_parent(backup_path)
     backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
     return backup_path
+
+
+def ensure_shared_openclaw_package_link() -> bool:
+    if not OPENCLAW_PACKAGE_ROOT.exists():
+        return False
+
+    if HOST_OPENCLAW_LINK.is_symlink():
+        try:
+            if HOST_OPENCLAW_LINK.resolve() == OPENCLAW_PACKAGE_ROOT.resolve():
+                return False
+        except FileNotFoundError:
+            pass
+        HOST_OPENCLAW_LINK.unlink()
+    elif HOST_OPENCLAW_LINK.exists():
+        package_json = HOST_OPENCLAW_LINK / "package.json"
+        if package_json.exists():
+            try:
+                package_payload = json.loads(package_json.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                package_payload = {}
+            if package_payload.get("name") == "openclaw":
+                return False
+        return False
+
+    HOST_OPENCLAW_LINK.parent.mkdir(parents=True, exist_ok=True)
+    HOST_OPENCLAW_LINK.symlink_to(OPENCLAW_PACKAGE_ROOT, target_is_directory=True)
+    return True
 
 
 def deep_set(target: dict, keys: Sequence[str], value) -> None:
@@ -499,6 +539,219 @@ def replace_when_present(text: str, old: str, new: str) -> tuple[str, bool]:
     return text.replace(old, new, 1), True
 
 
+def rewrite_file_if_needed(path: Path, replacements: Sequence[tuple[str, str]]) -> bool:
+    if not path.exists():
+        return False
+
+    updated = path.read_text(encoding="utf-8")
+    changed = False
+    for old, new in replacements:
+        updated, did_change = replace_when_present(updated, old, new)
+        changed = changed or did_change
+
+    if changed:
+        path.write_text(updated, encoding="utf-8")
+    return changed
+
+
+def sync_tree_if_needed(source: Path, target: Path) -> bool:
+    if not (source / "index.html").exists():
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, target, dirs_exist_ok=True)
+    return (target / "index.html").exists()
+
+
+def ensure_control_ui_assets() -> dict[str, str | None]:
+    result = {"cached_from": None, "restored_from": None}
+
+    if not (CONTROL_UI_CACHE_DIR / "index.html").exists():
+        for candidate in (CONTROL_UI_DIR, Path("/tmp/openclaw-source/dist/control-ui")):
+            if sync_tree_if_needed(candidate, CONTROL_UI_CACHE_DIR):
+                result["cached_from"] = str(candidate)
+                break
+
+    if (CONTROL_UI_DIR / "index.html").exists():
+        return result
+
+    for candidate in CONTROL_UI_FALLBACK_DIRS:
+        if sync_tree_if_needed(candidate, CONTROL_UI_DIR):
+            result["restored_from"] = str(candidate)
+            break
+
+    return result
+
+
+def patch_host_plugin_sdk_legacy_exports() -> list[str]:
+    path = HOST_PLUGIN_SDK_INDEX
+    if not path.exists():
+        return []
+
+    marker = "// guardian legacy plugin-sdk compatibility exports"
+    text = path.read_text(encoding="utf-8")
+    if marker in text:
+        return []
+
+    export_line = (
+        "export { buildFalImageGenerationProvider, buildGoogleImageGenerationProvider, "
+        "buildOpenAIImageGenerationProvider, delegateCompactionToRuntime, "
+        "emptyPluginConfigSchema, onDiagnosticEvent, registerContextEngine };"
+    )
+    if export_line not in text:
+        return []
+
+    compat_block = (
+        f"{marker}\n"
+        'import { normalizeAccountId, DEFAULT_ACCOUNT_ID } from "./account-id.js";\n'
+        'import { buildChannelConfigSchema } from "./channel-config-schema.js";\n'
+        'import { createTypingCallbacks } from "./channel-runtime.js";\n'
+        'import {\n'
+        "  resolveDirectDmAuthorizationOutcome,\n"
+        "  resolveSenderCommandAuthorizationWithRuntime,\n"
+        '} from "./command-auth.js";\n'
+        'import { formatPairingApproveHint } from "./core.js";\n'
+        'import { resolvePreferredOpenClawTmpDir } from "./diffs.js";\n'
+        'import { withFileLock, writeJsonAtomic } from "./infra-runtime.js";\n'
+        'import { readJsonFileWithFallback } from "./json-store.js";\n'
+        'import { addWildcardAllowFrom } from "./setup.js";\n'
+        'import { stripMarkdown } from "./text-runtime.js";\n'
+    )
+    replacement = (
+        compat_block
+        + "export { buildFalImageGenerationProvider, buildGoogleImageGenerationProvider, "
+        + "buildOpenAIImageGenerationProvider, delegateCompactionToRuntime, "
+        + "emptyPluginConfigSchema, onDiagnosticEvent, registerContextEngine, "
+        + "DEFAULT_ACCOUNT_ID, addWildcardAllowFrom, buildChannelConfigSchema, "
+        + "createTypingCallbacks, formatPairingApproveHint, normalizeAccountId, "
+        + "readJsonFileWithFallback, resolveDirectDmAuthorizationOutcome, "
+        + "resolvePreferredOpenClawTmpDir, resolveSenderCommandAuthorizationWithRuntime, "
+        + "stripMarkdown, withFileLock, writeJsonAtomic as writeJsonFileAtomically };"
+    )
+    path.write_text(text.replace(export_line, replacement, 1), encoding="utf-8")
+    return [str(path)]
+
+
+def patch_openclaw_weixin_plugin_sdk_imports() -> list[str]:
+    replacements: dict[Path, list[tuple[str, str]]] = {
+        WEIXIN_PLUGIN_DIR / "index.ts": [
+            (
+                'import { buildChannelConfigSchema } from "openclaw/plugin-sdk";\n',
+                'import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";\n',
+            )
+        ],
+        WEIXIN_PLUGIN_DIR / "src" / "channel.ts": [
+            (
+                'import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk";\n'
+                'import { normalizeAccountId, resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk";\n',
+                'import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk";\n'
+                'import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";\n'
+                'import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/diffs";\n',
+            )
+        ],
+        WEIXIN_PLUGIN_DIR / "src" / "log-upload.ts": [
+            (
+                'import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk";\n',
+                'import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/diffs";\n',
+            )
+        ],
+        WEIXIN_PLUGIN_DIR / "src" / "util" / "logger.ts": [
+            (
+                'import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk";\n',
+                'import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/diffs";\n',
+            )
+        ],
+        WEIXIN_PLUGIN_DIR / "src" / "auth" / "accounts.ts": [
+            (
+                'import { normalizeAccountId } from "openclaw/plugin-sdk";\n',
+                'import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";\n',
+            )
+        ],
+        WEIXIN_PLUGIN_DIR / "src" / "auth" / "pairing.ts": [
+            (
+                'import { withFileLock } from "openclaw/plugin-sdk";\n',
+                'import { withFileLock } from "openclaw/plugin-sdk/infra-runtime";\n',
+            )
+        ],
+        WEIXIN_PLUGIN_DIR / "src" / "messaging" / "send.ts": [
+            (
+                'import { stripMarkdown } from "openclaw/plugin-sdk";\n',
+                'import { stripMarkdown } from "openclaw/plugin-sdk/text-runtime";\n',
+            )
+        ],
+        WEIXIN_PLUGIN_DIR / "src" / "messaging" / "process-message.ts": [
+            (
+                'import {\n'
+                '  createTypingCallbacks,\n'
+                '  resolveSenderCommandAuthorizationWithRuntime,\n'
+                '  resolveDirectDmAuthorizationOutcome,\n'
+                '  resolvePreferredOpenClawTmpDir,\n'
+                '} from "openclaw/plugin-sdk";\n'
+                'import type { PluginRuntime } from "openclaw/plugin-sdk";\n',
+                'import { createTypingCallbacks } from "openclaw/plugin-sdk/channel-runtime";\n'
+                'import {\n'
+                '  resolveSenderCommandAuthorizationWithRuntime,\n'
+                '  resolveDirectDmAuthorizationOutcome,\n'
+                '} from "openclaw/plugin-sdk/command-auth";\n'
+                'import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/diffs";\n'
+                'import type { PluginRuntime } from "openclaw/plugin-sdk";\n',
+            )
+        ],
+    }
+
+    changed_paths: list[str] = []
+    for path, file_replacements in replacements.items():
+        if rewrite_file_if_needed(path, file_replacements):
+            changed_paths.append(str(path))
+    return changed_paths
+
+
+def patch_wecom_plugin_sdk_imports() -> list[str]:
+    replacements: dict[Path, list[tuple[str, str]]] = {
+        WECOM_PLUGIN_DIR / "dist" / "index.esm.js": [
+            (
+                "import { readJsonFileWithFallback, withFileLock, writeJsonFileAtomically, DEFAULT_ACCOUNT_ID, addWildcardAllowFrom, formatPairingApproveHint, emptyPluginConfigSchema } from 'openclaw/plugin-sdk';\n",
+                "import { emptyPluginConfigSchema } from 'openclaw/plugin-sdk';\n"
+                "import { readJsonFileWithFallback } from 'openclaw/plugin-sdk/json-store';\n"
+                "import { withFileLock, writeJsonAtomic as writeJsonFileAtomically } from 'openclaw/plugin-sdk/infra-runtime';\n"
+                "import { DEFAULT_ACCOUNT_ID } from 'openclaw/plugin-sdk/account-id';\n"
+                "import { addWildcardAllowFrom } from 'openclaw/plugin-sdk/setup';\n"
+                "import { formatPairingApproveHint } from 'openclaw/plugin-sdk/core';\n",
+            )
+        ],
+        WECOM_PLUGIN_DIR / "dist" / "index.cjs.js": [
+            (
+                "var pluginSdk = require('openclaw/plugin-sdk');\n",
+                "var pluginSdk = Object.assign(\n"
+                "    {},\n"
+                "    require('openclaw/plugin-sdk'),\n"
+                "    require('openclaw/plugin-sdk/json-store'),\n"
+                "    {\n"
+                "        withFileLock: require('openclaw/plugin-sdk/infra-runtime').withFileLock,\n"
+                "        writeJsonFileAtomically: require('openclaw/plugin-sdk/infra-runtime').writeJsonAtomic,\n"
+                "        DEFAULT_ACCOUNT_ID: require('openclaw/plugin-sdk/account-id').DEFAULT_ACCOUNT_ID,\n"
+                "        addWildcardAllowFrom: require('openclaw/plugin-sdk/setup').addWildcardAllowFrom,\n"
+                "        formatPairingApproveHint: require('openclaw/plugin-sdk/core').formatPairingApproveHint\n"
+                "    }\n"
+                ");\n",
+            )
+        ],
+    }
+
+    changed_paths: list[str] = []
+    for path, file_replacements in replacements.items():
+        if rewrite_file_if_needed(path, file_replacements):
+            changed_paths.append(str(path))
+    return changed_paths
+
+
+def ensure_plugin_sdk_compatibility_patches() -> list[str]:
+    changed_paths: list[str] = []
+    changed_paths.extend(patch_host_plugin_sdk_legacy_exports())
+    changed_paths.extend(patch_openclaw_weixin_plugin_sdk_imports())
+    changed_paths.extend(patch_wecom_plugin_sdk_imports())
+    return changed_paths
+
+
 def deep_delete(target: dict, keys: Sequence[str]) -> bool:
     current = target
     parents: list[tuple[dict, str]] = []
@@ -561,6 +814,132 @@ def plugin_installed_in_config(payload: dict, plugin_id: str) -> bool:
         return False
     install = installs.get(plugin_id)
     return isinstance(install, dict)
+
+
+def resolve_runtime_validator_module() -> Path | None:
+    candidates = sorted(DIST_DIR.glob("io-*.js"))
+    return candidates[-1] if candidates else None
+
+
+def resolve_invalid_plugin_ids_via_runtime(payload: dict) -> set[str] | None:
+    module_path = resolve_runtime_validator_module()
+    if module_path is None:
+        return None
+
+    node_bin = NODE22_BIN if NODE22_BIN.exists() else Path("node")
+    workspace_dir = payload.get("agents", {}).get("defaults", {}).get("workspace") if isinstance(payload.get("agents"), dict) else None
+    script = """
+import fs from "node:fs";
+
+const validatorModule = await import(process.env.OPENCLAW_VALIDATOR_MODULE);
+const validateConfig =
+  validatorModule.validateConfigObjectWithPlugins ??
+  Object.values(validatorModule).find(
+    (value) => typeof value === "function" && value.name === "validateConfigObjectWithPlugins",
+  );
+
+if (typeof validateConfig !== "function") {
+  throw new Error("validateConfigObjectWithPlugins export not found");
+}
+
+const cfg = JSON.parse(fs.readFileSync(process.env.OPENCLAW_CONFIG_JSON, "utf8"));
+const result = validateConfig(cfg, { env: process.env });
+const messages = [...(result?.issues ?? []), ...(result?.warnings ?? [])]
+  .map((entry) => String(entry?.message ?? ""));
+const invalidPluginIds = [...new Set(messages.map((message) => {
+  const match = message.match(/^plugin (?:removed|not found): ([^ ]+)/);
+  return match ? match[1] : null;
+}).filter(Boolean))].sort();
+
+console.log(JSON.stringify({ invalidPluginIds }));
+"""
+
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
+        json.dump(payload, handle, ensure_ascii=False)
+        temp_config_path = Path(handle.name)
+
+    env = os.environ.copy()
+    env["OPENCLAW_VALIDATOR_MODULE"] = str(module_path)
+    env["OPENCLAW_CONFIG_JSON"] = str(temp_config_path)
+    if isinstance(workspace_dir, str) and workspace_dir.strip():
+        env["OPENCLAW_WORKSPACE_DIR"] = workspace_dir.strip()
+
+    try:
+        result = subprocess.run(
+            [str(node_bin), "--input-type=module", "-e", script],
+            cwd=str(ROOT_DIR),
+            text=True,
+            capture_output=True,
+            timeout=30,
+            env=env,
+            check=False,
+        )
+    except (FileNotFoundError, PermissionError, subprocess.TimeoutExpired) as exc:
+        log_line(f"guardian config normalize: runtime validator unavailable: {exc}")
+        return None
+    finally:
+        try:
+            temp_config_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        log_line(f"guardian config normalize: runtime validator failed: {detail}")
+        return None
+
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        log_line(f"guardian config normalize: runtime validator returned invalid JSON: {exc}")
+        return None
+
+    invalid_ids = payload.get("invalidPluginIds", [])
+    if not isinstance(invalid_ids, list):
+        return None
+    return {str(item).strip() for item in invalid_ids if str(item).strip()}
+
+
+def prune_invalid_plugin_references(payload: dict) -> list[str]:
+    invalid_ids = resolve_invalid_plugin_ids_via_runtime(payload)
+    if not invalid_ids:
+        return []
+
+    plugins = payload.get("plugins")
+    if not isinstance(plugins, dict):
+        return []
+
+    changes: list[str] = []
+    invalid = set(invalid_ids)
+
+    for list_key in ("allow", "deny"):
+        values = plugins.get(list_key)
+        if not isinstance(values, list):
+            continue
+        filtered = [item for item in values if str(item).strip() not in invalid]
+        if filtered != values:
+            plugins[list_key] = filtered
+            changes.append(f"plugins.{list_key}")
+
+    for record_key in ("entries", "installs"):
+        records = plugins.get(record_key)
+        if not isinstance(records, dict):
+            continue
+        removed = [plugin_id for plugin_id in list(records.keys()) if plugin_id in invalid]
+        if not removed:
+            continue
+        for plugin_id in removed:
+            del records[plugin_id]
+        changes.append(f"plugins.{record_key}")
+
+    slots = plugins.get("slots")
+    if isinstance(slots, dict):
+        memory_slot = slots.get("memory")
+        if isinstance(memory_slot, str) and memory_slot.strip() in invalid:
+            del slots["memory"]
+            changes.append("plugins.slots.memory")
+
+    return changes
 
 
 def merge_plugin_records(payload: dict, section: str, source_id: str, target_id: str) -> bool:
@@ -748,12 +1127,32 @@ def configure_openclaw(*, dry_run: bool) -> dict:
     deep_set(payload, ["gateway", "channelHealthCheckMinutes"], EXPECTED_CHANNEL_HEALTH_CHECK_MINUTES)
     normalize_group_policy(payload)
     normalize_wecom_plugin_config(payload)
+    prune_invalid_plugin_references(payload)
 
     # Keep config compatible across OpenClaw releases: never persist these
     # optional tuning keys because unsupported versions reject them as invalid.
     deep_delete(payload, ["web", "messageTimeoutMs"])
     deep_delete(payload, ["web", "watchdogCheckMs"])
     deep_delete(payload, ["gateway", "channelHealth"])
+    if not dry_run:
+        ensure_shared_openclaw_package_link()
+        control_ui_assets = ensure_control_ui_assets()
+        if control_ui_assets["cached_from"]:
+            log_line(
+                "guardian config normalize: cached Control UI assets from "
+                + control_ui_assets["cached_from"]
+            )
+        if control_ui_assets["restored_from"]:
+            log_line(
+                "guardian config normalize: restored Control UI assets from "
+                + control_ui_assets["restored_from"]
+            )
+        patched_plugins = ensure_plugin_sdk_compatibility_patches()
+        if patched_plugins:
+            log_line(
+                "guardian config normalize: patched plugin-sdk imports for "
+                + ", ".join(patched_plugins)
+            )
 
     if not dry_run and json.dumps(payload, ensure_ascii=False, sort_keys=True) != original:
         backup_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -1699,6 +2098,40 @@ await processForRoute(msg, route, groupHistoryKey);
     assert "wecom-openclaw-plugin" in sample_plugins["plugins"]["entries"]
     assert "wecom" not in sample_plugins["plugins"]["installs"]
     assert "wecom-openclaw-plugin" in sample_plugins["plugins"]["installs"]
+    sample_invalid_plugins = {
+        "plugins": {
+            "allow": ["telegram", "whatsapp", "wecom-openclaw-plugin"],
+            "deny": ["whatsapp"],
+            "entries": {
+                "whatsapp": {"enabled": True},
+                "copilot-proxy": {"enabled": True},
+            },
+            "installs": {
+                "whatsapp": {"version": "2026.3.22"},
+                "wecom-openclaw-plugin": {"version": "1.0.11"},
+            },
+            "slots": {"memory": "whatsapp"},
+        }
+    }
+    original_invalid_resolver = globals()["resolve_invalid_plugin_ids_via_runtime"]
+    try:
+        globals()["resolve_invalid_plugin_ids_via_runtime"] = lambda payload: {"whatsapp"}
+        changes = prune_invalid_plugin_references(sample_invalid_plugins)
+        assert sample_invalid_plugins["plugins"]["allow"] == ["telegram", "wecom-openclaw-plugin"]
+        assert sample_invalid_plugins["plugins"]["deny"] == []
+        assert "whatsapp" not in sample_invalid_plugins["plugins"]["entries"]
+        assert "copilot-proxy" in sample_invalid_plugins["plugins"]["entries"]
+        assert "whatsapp" not in sample_invalid_plugins["plugins"]["installs"]
+        assert "memory" not in sample_invalid_plugins["plugins"]["slots"]
+        assert set(changes) == {
+            "plugins.allow",
+            "plugins.deny",
+            "plugins.entries",
+            "plugins.installs",
+            "plugins.slots.memory",
+        }
+    finally:
+        globals()["resolve_invalid_plugin_ids_via_runtime"] = original_invalid_resolver
 
     config = {}
     with tempfile.TemporaryDirectory() as tmp:
@@ -1751,6 +2184,119 @@ await processForRoute(msg, route, groupHistoryKey);
             assert session_health["reason"] == "invalid-session-header-record"
         finally:
             globals()["OPENCLAW_HOME"] = original_home
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_openclaw_root = Path(tmp) / "openclaw"
+        fake_openclaw_root.mkdir(parents=True, exist_ok=True)
+        (fake_openclaw_root / "package.json").write_text('{"name":"openclaw"}\n', encoding="utf-8")
+        original_home = globals()["OPENCLAW_HOME"]
+        original_pkg_root = globals()["OPENCLAW_PACKAGE_ROOT"]
+        original_link = globals()["HOST_OPENCLAW_LINK"]
+        try:
+            globals()["OPENCLAW_HOME"] = Path(tmp) / ".openclaw"
+            globals()["OPENCLAW_PACKAGE_ROOT"] = fake_openclaw_root
+            globals()["HOST_OPENCLAW_LINK"] = globals()["OPENCLAW_HOME"] / "extensions" / "node_modules" / "openclaw"
+            created = ensure_shared_openclaw_package_link()
+            assert created is True
+            assert globals()["HOST_OPENCLAW_LINK"].is_symlink()
+            assert globals()["HOST_OPENCLAW_LINK"].resolve() == fake_openclaw_root.resolve()
+            assert ensure_shared_openclaw_package_link() is False
+        finally:
+            globals()["OPENCLAW_HOME"] = original_home
+            globals()["OPENCLAW_PACKAGE_ROOT"] = original_pkg_root
+            globals()["HOST_OPENCLAW_LINK"] = original_link
+    with tempfile.TemporaryDirectory() as tmp:
+        original_pkg_root = globals()["OPENCLAW_PACKAGE_ROOT"]
+        original_sdk_index = globals()["HOST_PLUGIN_SDK_INDEX"]
+        original_weixin_dir = globals()["WEIXIN_PLUGIN_DIR"]
+        original_wecom_dir = globals()["WECOM_PLUGIN_DIR"]
+        try:
+            fake_openclaw_root = Path(tmp) / "openclaw-host"
+            fake_sdk_dir = fake_openclaw_root / "dist" / "plugin-sdk"
+            fake_sdk_dir.mkdir(parents=True, exist_ok=True)
+            (fake_sdk_dir / "index.js").write_text(
+                "export { buildFalImageGenerationProvider, buildGoogleImageGenerationProvider, "
+                "buildOpenAIImageGenerationProvider, delegateCompactionToRuntime, "
+                "emptyPluginConfigSchema, onDiagnosticEvent, registerContextEngine };",
+                encoding="utf-8",
+            )
+
+            fake_weixin_dir = Path(tmp) / "openclaw-weixin"
+            fake_weixin_src = fake_weixin_dir / "src"
+            (fake_weixin_src / "auth").mkdir(parents=True, exist_ok=True)
+            (fake_weixin_src / "messaging").mkdir(parents=True, exist_ok=True)
+            (fake_weixin_src / "util").mkdir(parents=True, exist_ok=True)
+            (fake_weixin_dir / "index.ts").write_text(
+                'import type { OpenClawPluginApi } from "openclaw/plugin-sdk";\n'
+                'import { buildChannelConfigSchema } from "openclaw/plugin-sdk";\n',
+                encoding="utf-8",
+            )
+            (fake_weixin_src / "channel.ts").write_text(
+                'import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk";\n'
+                'import { normalizeAccountId, resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk";\n',
+                encoding="utf-8",
+            )
+            (fake_weixin_src / "log-upload.ts").write_text(
+                'import type { OpenClawConfig } from "openclaw/plugin-sdk";\n'
+                'import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk";\n',
+                encoding="utf-8",
+            )
+            (fake_weixin_src / "util" / "logger.ts").write_text(
+                'import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk";\n',
+                encoding="utf-8",
+            )
+            (fake_weixin_src / "auth" / "accounts.ts").write_text(
+                'import { normalizeAccountId } from "openclaw/plugin-sdk";\n',
+                encoding="utf-8",
+            )
+            (fake_weixin_src / "auth" / "pairing.ts").write_text(
+                'import { withFileLock } from "openclaw/plugin-sdk";\n',
+                encoding="utf-8",
+            )
+            (fake_weixin_src / "messaging" / "send.ts").write_text(
+                'import { stripMarkdown } from "openclaw/plugin-sdk";\n',
+                encoding="utf-8",
+            )
+            (fake_weixin_src / "messaging" / "process-message.ts").write_text(
+                'import {\n'
+                '  createTypingCallbacks,\n'
+                '  resolveSenderCommandAuthorizationWithRuntime,\n'
+                '  resolveDirectDmAuthorizationOutcome,\n'
+                '  resolvePreferredOpenClawTmpDir,\n'
+                '} from "openclaw/plugin-sdk";\n'
+                'import type { PluginRuntime } from "openclaw/plugin-sdk";\n',
+                encoding="utf-8",
+            )
+
+            fake_wecom_dir = Path(tmp) / "wecom" / "dist"
+            fake_wecom_dir.mkdir(parents=True, exist_ok=True)
+            (fake_wecom_dir / "index.esm.js").write_text(
+                "import { readJsonFileWithFallback, withFileLock, writeJsonFileAtomically, DEFAULT_ACCOUNT_ID, addWildcardAllowFrom, formatPairingApproveHint, emptyPluginConfigSchema } from 'openclaw/plugin-sdk';\n",
+                encoding="utf-8",
+            )
+            (fake_wecom_dir / "index.cjs.js").write_text(
+                "var pluginSdk = require('openclaw/plugin-sdk');\n",
+                encoding="utf-8",
+            )
+
+            globals()["OPENCLAW_PACKAGE_ROOT"] = fake_openclaw_root
+            globals()["HOST_PLUGIN_SDK_INDEX"] = fake_sdk_dir / "index.js"
+            globals()["WEIXIN_PLUGIN_DIR"] = fake_weixin_dir
+            globals()["WECOM_PLUGIN_DIR"] = Path(tmp) / "wecom"
+            patched_paths = ensure_plugin_sdk_compatibility_patches()
+            assert len(patched_paths) == 11
+            assert "guardian legacy plugin-sdk compatibility exports" in (fake_sdk_dir / "index.js").read_text(encoding="utf-8")
+            assert "writeJsonFileAtomically" in (fake_sdk_dir / "index.js").read_text(encoding="utf-8")
+            assert "channel-config-schema" in (fake_weixin_dir / "index.ts").read_text(encoding="utf-8")
+            assert "plugin-sdk/diffs" in (fake_weixin_src / "channel.ts").read_text(encoding="utf-8")
+            assert "plugin-sdk/command-auth" in (fake_weixin_src / "messaging" / "process-message.ts").read_text(encoding="utf-8")
+            assert "plugin-sdk/json-store" in (fake_wecom_dir / "index.esm.js").read_text(encoding="utf-8")
+            assert "writeJsonAtomic" in (fake_wecom_dir / "index.cjs.js").read_text(encoding="utf-8")
+            assert ensure_plugin_sdk_compatibility_patches() == []
+        finally:
+            globals()["OPENCLAW_PACKAGE_ROOT"] = original_pkg_root
+            globals()["HOST_PLUGIN_SDK_INDEX"] = original_sdk_index
+            globals()["WEIXIN_PLUGIN_DIR"] = original_weixin_dir
+            globals()["WECOM_PLUGIN_DIR"] = original_wecom_dir
     reset_sample = {
         "model_failover": {
             "active": True,

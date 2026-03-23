@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """
-小红书稳态发布器
+Publish Xiaohongshu posts through a stability-first workflow.
 
-目标：
-1. 所有图片落到 ASCII 安全路径，避免路径字符导致上传异常
-2. 发布前自动压图到稳定规格，减少上传抖动
-3. 检测到近期多图上传故障时，直接切到单张长图模式，兼顾速度和成片质量
-4. 发布失败后自动自愈重启 MCP，再用单张长图兜底重试
+The script keeps the original command-line contract but trims the control flow
+into smaller stages so the fallback logic is easier to audit.
 """
 
 from __future__ import annotations
@@ -14,7 +11,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -59,6 +55,13 @@ class CommandResult:
         return "\n".join(part for part in (self.stdout.strip(), self.stderr.strip()) if part)
 
 
+@dataclass
+class PreparedPayload:
+    label: str
+    payload_path: Path
+    images: list[Path]
+
+
 def workspace_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
@@ -76,25 +79,17 @@ def xhs_mcp_log() -> Path:
 
 
 def load_payload(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize legacy aliases so the rest of the script uses one schema only."""
     normalized = dict(payload)
-
-    if not normalized.get("content"):
-        normalized["content"] = normalized.get("description") or normalized.get("desc") or ""
-
-    if not normalized.get("images"):
-        normalized["images"] = normalized.get("image_urls") or []
-
-    if not normalized.get("tags"):
-        normalized["tags"] = normalized.get("topics") or normalized.get("hashtags") or []
-
+    normalized["content"] = normalized.get("content") or normalized.get("description") or normalized.get("desc") or ""
+    normalized["images"] = normalized.get("images") or normalized.get("image_urls") or []
+    normalized["tags"] = normalized.get("tags") or normalized.get("topics") or normalized.get("hashtags") or []
     if "visibility" not in normalized and "is_private" in normalized:
         normalized["visibility"] = "仅自己可见" if bool(normalized["is_private"]) else "公开可见"
-
     return normalized
 
 
@@ -104,19 +99,19 @@ def safe_ascii_name(index: int, source_path: Path) -> str:
 
 
 def ensure_rgb(image: Image.Image) -> Image.Image:
+    """Flatten alpha channels onto white to avoid format-specific upload quirks."""
     image = ImageOps.exif_transpose(image)
     if image.mode == "RGB":
         return image
     background = Image.new("RGB", image.size, "white")
-    alpha = None
-    if image.mode in {"RGBA", "LA"}:
-        alpha = image.getchannel("A")
+    alpha = image.getchannel("A") if image.mode in {"RGBA", "LA"} else None
     converted = image.convert("RGB")
     background.paste(converted, mask=alpha)
     return background
 
 
 def constrain_image(image: Image.Image) -> Image.Image:
+    """Keep oversized images inside the preferred upload box before JPEG encoding."""
     if image.width <= TARGET_IMAGE_WIDTH and image.height <= TARGET_IMAGE_HEIGHT:
         return image
     constrained = image.copy()
@@ -124,7 +119,14 @@ def constrain_image(image: Image.Image) -> Image.Image:
     return constrained
 
 
-def encode_jpeg_under_limit(image: Image.Image, output_path: Path, max_bytes: int) -> None:
+def encode_jpeg_under_limit(image: Image.Image, output_path: Path, *, max_bytes: int) -> None:
+    """
+    Encode a JPEG using a small, deterministic ladder of quality and size steps.
+
+    The sequence is intentionally conservative: it prefers preserving resolution
+    first, then gradually scales down only when quality reduction is insufficient.
+    """
+
     variants = (
         (92, 1.0),
         (88, 1.0),
@@ -134,28 +136,30 @@ def encode_jpeg_under_limit(image: Image.Image, output_path: Path, max_bytes: in
         (72, 0.92),
         (68, 0.88),
     )
-    last_image = image
-    last_quality = 72
+    current_image = image
+    current_quality = 72
     for quality, scale in variants:
-        candidate = last_image
+        candidate = current_image
         if scale < 0.999:
-            resized = candidate.resize(
-                (max(720, int(candidate.width * scale)), max(960, int(candidate.height * scale))),
+            candidate = candidate.resize(
+                (
+                    max(720, int(candidate.width * scale)),
+                    max(960, int(candidate.height * scale)),
+                ),
                 Image.Resampling.LANCZOS,
             )
-            candidate = resized
         candidate.save(output_path, format="JPEG", quality=quality, optimize=True, progressive=True)
         if output_path.stat().st_size <= max_bytes:
             return
-        last_image = candidate
-        last_quality = quality
+        current_image = candidate
+        current_quality = quality
+    current_image.save(output_path, format="JPEG", quality=current_quality, optimize=True, progressive=True)
 
-    last_image.save(output_path, format="JPEG", quality=last_quality, optimize=True, progressive=True)
 
-
-def optimize_images(image_paths: list[str], asset_dir: Path, max_bytes: int) -> list[Path]:
-    output_paths: list[Path] = []
+def optimize_images(image_paths: list[str], asset_dir: Path, *, max_bytes: int) -> list[Path]:
+    """Copy every source image into an ASCII-safe, compressed working directory."""
     asset_dir.mkdir(parents=True, exist_ok=True)
+    optimized: list[Path] = []
     for index, image_path in enumerate(image_paths, start=1):
         source = Path(image_path).expanduser().resolve()
         if not source.is_file():
@@ -164,11 +168,12 @@ def optimize_images(image_paths: list[str], asset_dir: Path, max_bytes: int) -> 
         with Image.open(source) as opened:
             prepared = constrain_image(ensure_rgb(opened))
             encode_jpeg_under_limit(prepared, destination, max_bytes=max_bytes)
-        output_paths.append(destination)
-    return output_paths
+        optimized.append(destination)
+    return optimized
 
 
 def build_long_poster(image_paths: list[Path], output_path: Path) -> Path:
+    """Merge many images into a single tall poster for the fallback publishing mode."""
     prepared_images: list[Image.Image] = []
     try:
         for image_path in image_paths:
@@ -179,7 +184,7 @@ def build_long_poster(image_paths: list[Path], output_path: Path) -> Path:
                     image = image.resize((TARGET_IMAGE_WIDTH, new_height), Image.Resampling.LANCZOS)
                 prepared_images.append(image.copy())
 
-        total_height = (POSTER_PADDING * 2) + sum(image.height for image in prepared_images)
+        total_height = POSTER_PADDING * 2 + sum(image.height for image in prepared_images)
         total_height += POSTER_GAP * max(0, len(prepared_images) - 1)
         poster = Image.new("RGB", (TARGET_IMAGE_WIDTH, total_height), "white")
 
@@ -197,8 +202,7 @@ def build_long_poster(image_paths: list[Path], output_path: Path) -> Path:
 
 def write_payload(payload: dict[str, Any], output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return output_path
 
 
@@ -210,13 +214,13 @@ def make_run_dir(payload_path: Path) -> Path:
 
 
 def recent_log_needs_poster(log_path: Path) -> bool:
+    """Read only the tail of the MCP log because we only care about fresh instability."""
     if not log_path.is_file():
         return False
     try:
-        content = log_path.read_text(encoding="utf-8", errors="replace")
+        tail = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-120:])
     except OSError:
         return False
-    tail = "\n".join(content.splitlines()[-120:])
     return any(marker in tail for marker in KNOWN_RECENT_FAILURE_MARKERS)
 
 
@@ -242,13 +246,7 @@ def print_command_result(result: CommandResult, header: str) -> None:
 
 def check_login(base_url: str) -> CommandResult:
     return run_command(
-        [
-            "python3",
-            str(publish_helper_script()),
-            "check-login",
-            "--base-url",
-            base_url,
-        ],
+        ["python3", str(publish_helper_script()), "check-login", "--base-url", base_url],
         cwd=workspace_root(),
     )
 
@@ -257,7 +255,7 @@ def restart_service() -> CommandResult:
     return run_command(["bash", str(stable_start_script())], cwd=workspace_root())
 
 
-def publish_payload(payload_path: Path, base_url: str, timeout: int, dry_run: bool) -> CommandResult:
+def publish_payload(payload_path: Path, base_url: str, timeout: int, *, dry_run: bool) -> CommandResult:
     cmd = [
         "python3",
         str(publish_helper_script()),
@@ -275,8 +273,7 @@ def publish_payload(payload_path: Path, base_url: str, timeout: int, dry_run: bo
 
 
 def is_recoverable_failure(result: CommandResult) -> bool:
-    text = result.combined
-    return any(marker in text for marker in KNOWN_MULTI_IMAGE_ERRORS)
+    return any(marker in result.combined for marker in KNOWN_MULTI_IMAGE_ERRORS)
 
 
 def build_publish_payload(base_payload: dict[str, Any], image_paths: list[Path]) -> dict[str, Any]:
@@ -286,11 +283,10 @@ def build_publish_payload(base_payload: dict[str, Any], image_paths: list[Path])
     return payload
 
 
-def choose_initial_mode(mode: str, optimized_images: list[Path]) -> str:
-    if mode == "poster":
-        return "poster"
-    if mode == "multi":
-        return "multi"
+def choose_initial_mode(requested_mode: str, optimized_images: list[Path]) -> str:
+    """Prefer poster mode when history or image count suggests multi-image instability."""
+    if requested_mode in {"multi", "poster"}:
+        return requested_mode
     if len(optimized_images) > RECOMMENDED_MULTI_IMAGE_COUNT:
         return "poster"
     if len(optimized_images) > 1 and recent_log_needs_poster(xhs_mcp_log()):
@@ -298,32 +294,30 @@ def choose_initial_mode(mode: str, optimized_images: list[Path]) -> str:
     return "multi"
 
 
-def prepare_primary_payload(
+def prepare_payload_file(
     payload: dict[str, Any],
     optimized_images: list[Path],
     run_dir: Path,
     mode: str,
-) -> tuple[str, Path, list[Path]]:
+) -> PreparedPayload:
+    """Build the first payload file, using a poster immediately when required."""
     if mode == "poster" and len(optimized_images) > 1:
-        poster_path = build_long_poster(optimized_images, run_dir / "poster_cover.jpg")
-        primary_images = [poster_path]
-        payload_label = "poster"
+        images = [build_long_poster(optimized_images, run_dir / "poster_cover.jpg")]
+        label = "poster"
     else:
-        primary_images = optimized_images
-        payload_label = "multi" if len(primary_images) > 1 else "single"
-
+        images = optimized_images
+        label = "multi" if len(images) > 1 else "single"
     payload_path = write_payload(
-        build_publish_payload(payload, primary_images),
-        run_dir / f"payload_{payload_label}.json",
+        build_publish_payload(payload, images),
+        run_dir / f"payload_{label}.json",
     )
-    return payload_label, payload_path, primary_images
+    return PreparedPayload(label=label, payload_path=payload_path, images=images)
 
 
 def validate_payload(payload: dict[str, Any]) -> None:
     title = str(payload.get("title", "")).strip()
     content = str(payload.get("content", "")).strip()
     images = payload.get("images") or []
-
     if not title:
         raise ValueError("title 不能为空")
     if not content:
@@ -339,65 +333,43 @@ def validate_payload(payload: dict[str, Any]) -> None:
         )
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="小红书自动发布（稳态版）")
-    parser.add_argument("--payload", required=True, help="payload JSON 文件路径")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="MCP 服务地址")
-    parser.add_argument("--dry-run", action="store_true", help="仅生成安全 payload 并校验，不实际发布")
-    parser.add_argument(
-        "--publish-mode",
-        choices=("auto", "multi", "poster"),
-        default="auto",
-        help="发布模式：auto=自动，multi=优先多图，poster=直接单张长图",
-    )
-    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS, help="发布接口超时秒数")
-    parser.add_argument("--max-image-bytes", type=int, default=TARGET_IMAGE_BYTES, help="单张图片压缩目标字节数")
-    args = parser.parse_args()
+def maybe_restart_before_publish(base_url: str) -> int:
+    """
+    Restart the publishing service when login state is unhealthy or logs show
+    fresh multi-image instability. Returning zero means the caller can proceed.
+    """
 
-    payload_path = Path(args.payload).expanduser().resolve()
-    original_payload = normalize_payload(load_payload(payload_path))
-    validate_payload(original_payload)
+    login_result = check_login(base_url)
+    if login_result.exit_code == 0 and not recent_log_needs_poster(xhs_mcp_log()):
+        return 0
+    restart_result = restart_service()
+    print_command_result(restart_result, "Service Restart")
+    return restart_result.exit_code
 
-    run_dir = make_run_dir(payload_path)
-    asset_dir = run_dir / "assets"
-    optimized_images = optimize_images(original_payload["images"], asset_dir, max_bytes=args.max_image_bytes)
 
-    primary_mode = choose_initial_mode(args.publish_mode, optimized_images)
-    strict_multi = args.publish_mode == "multi"
-    payload_label, primary_payload_path, primary_images = prepare_primary_payload(
-        original_payload,
-        optimized_images,
-        run_dir,
-        primary_mode,
-    )
+def publish_with_optional_fallback(
+    original_payload: dict[str, Any],
+    optimized_images: list[Path],
+    prepared: PreparedPayload,
+    *,
+    base_url: str,
+    timeout: int,
+    strict_multi: bool,
+    run_dir: Path,
+) -> int:
+    """
+    Run the publish flow once and only fall back to a poster when the failure
+    looks like the known multi-image upload failure family.
+    """
 
-    print("=" * 60)
-    print("小红书稳态发布器")
-    print("=" * 60)
-    print(f"run_dir: {run_dir}")
-    print(f"source_payload: {payload_path}")
-    print(f"prepared_payload: {primary_payload_path}")
-    print(f"mode: {payload_label}")
-    print(f"images: {len(primary_images)}")
-
-    if args.dry_run:
-        dry_result = publish_payload(primary_payload_path, args.base_url, args.timeout, dry_run=True)
-        print_command_result(dry_result, "Dry Run")
-        return dry_result.exit_code
-
-    login_result = check_login(args.base_url)
-    if login_result.exit_code != 0 or recent_log_needs_poster(xhs_mcp_log()):
-        restart_result = restart_service()
-        print_command_result(restart_result, "Service Restart")
-        if restart_result.exit_code != 0:
-            return restart_result.exit_code
-
-    first_result = publish_payload(primary_payload_path, args.base_url, args.timeout, dry_run=False)
+    first_result = publish_payload(prepared.payload_path, base_url, timeout, dry_run=False)
     print_command_result(first_result, "Publish Attempt 1")
     if first_result.exit_code == 0:
         return 0
 
-    if strict_multi or len(optimized_images) <= 1 or payload_label == "poster" or not is_recoverable_failure(first_result):
+    if strict_multi or len(optimized_images) <= 1 or prepared.label == "poster":
+        return first_result.exit_code
+    if not is_recoverable_failure(first_result):
         return first_result.exit_code
 
     print("\n检测到多图链路故障，切换到单张长图兜底。")
@@ -411,10 +383,79 @@ def main() -> int:
         build_publish_payload(original_payload, [poster_path]),
         run_dir / "payload_poster_fallback.json",
     )
-    fallback_result = publish_payload(fallback_payload_path, args.base_url, args.timeout, dry_run=False)
+    fallback_result = publish_payload(fallback_payload_path, base_url, timeout, dry_run=False)
     print_command_result(fallback_result, "Publish Attempt 2 Poster Fallback")
     return fallback_result.exit_code
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="小红书自动发布（稳态版）")
+    parser.add_argument("--payload", required=True, help="payload JSON 文件路径")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="MCP 服务地址")
+    parser.add_argument("--dry-run", action="store_true", help="仅生成安全 payload 并校验，不实际发布")
+    parser.add_argument(
+        "--publish-mode",
+        choices=("auto", "multi", "poster"),
+        default="auto",
+        help="发布模式：auto=自动，multi=优先多图，poster=直接单张长图",
+    )
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS, help="发布接口超时秒数")
+    parser.add_argument(
+        "--max-image-bytes",
+        type=int,
+        default=TARGET_IMAGE_BYTES,
+        help="单张图片压缩目标字节数",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    payload_path = Path(args.payload).expanduser().resolve()
+    original_payload = normalize_payload(load_payload(payload_path))
+    validate_payload(original_payload)
+
+    run_dir = make_run_dir(payload_path)
+    optimized_images = optimize_images(
+        original_payload["images"],
+        run_dir / "assets",
+        max_bytes=args.max_image_bytes,
+    )
+    prepared = prepare_payload_file(
+        original_payload,
+        optimized_images,
+        run_dir,
+        choose_initial_mode(args.publish_mode, optimized_images),
+    )
+
+    print("=" * 60)
+    print("小红书稳态发布器")
+    print("=" * 60)
+    print(f"run_dir: {run_dir}")
+    print(f"source_payload: {payload_path}")
+    print(f"prepared_payload: {prepared.payload_path}")
+    print(f"mode: {prepared.label}")
+    print(f"images: {len(prepared.images)}")
+
+    if args.dry_run:
+        dry_result = publish_payload(prepared.payload_path, args.base_url, args.timeout, dry_run=True)
+        print_command_result(dry_result, "Dry Run")
+        return dry_result.exit_code
+
+    restart_exit_code = maybe_restart_before_publish(args.base_url)
+    if restart_exit_code != 0:
+        return restart_exit_code
+
+    return publish_with_optional_fallback(
+        original_payload,
+        optimized_images,
+        prepared,
+        base_url=args.base_url,
+        timeout=args.timeout,
+        strict_multi=args.publish_mode == "multi",
+        run_dir=run_dir,
+    )
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
