@@ -41,6 +41,27 @@ python3 scripts/extract-pptx.py input.pptx output_dir/
 
 ---
 
+## AI Invest Agent
+
+### 快速使用
+```bash
+cd ~/.openclaw/workspace-runtime-real/skills/ai-invest-agent
+pip install -r requirements.txt
+```
+
+### 主要入口
+- 周度复盘: `prompts/weekly_review.md`
+- 每日快检: `prompts/quick_check.md`
+- 文档导出: `python3 tools/md2docx.py`
+- 表格导出: `python3 tools/create_excel.py`
+
+### 适用场景
+- A股/港股/美股周度复盘
+- 33指数估值温度计检查
+- 持仓深度分析与复盘报告输出
+
+---
+
 ## 企业微信 WeCom
 
 ### 当前接入方式

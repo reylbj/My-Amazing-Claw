@@ -50,5 +50,22 @@ skills/xianyu-multi-agent/
 **/.clawhub/
 scripts/healthcheck_runtime.txt
 
+# 允许同步 ai-invest-agent 源码，但继续忽略其运行态/私有内容
+!skills/ai-invest-agent/
+!skills/ai-invest-agent/**
+skills/ai-invest-agent/.git/
+skills/ai-invest-agent/.env
+skills/ai-invest-agent/output/
+skills/ai-invest-agent/__pycache__/
+skills/ai-invest-agent/.pytest_cache/
+skills/ai-invest-agent/.mypy_cache/
+skills/ai-invest-agent/.venv/
+skills/ai-invest-agent/venv/
+skills/ai-invest-agent/env/
+skills/ai-invest-agent/*.log
+skills/ai-invest-agent/*.pyc
+skills/ai-invest-agent/*.pyo
+skills/ai-invest-agent/*.pyd
+
 # 验证输出
 验证*/

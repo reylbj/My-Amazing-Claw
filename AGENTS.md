@@ -64,6 +64,12 @@ python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --ba
 发布:`bash scripts/xianyu_live_publish.sh --title "标题" --description "描述"`
 要点:先备好文案与首图;发布属外部动作,执行前确认
 
+### AI投资复盘官(`投资复盘`/`投资周报`/`每日快检`)
+路径:`skills/ai-invest-agent/`
+规则:按目录内`README.md`/`prompts/*.md`执行,默认手动调用不自动推送
+能力:周度四步复盘/每日快速检查/33指数温度计/输出MD DOCX XLSX
+要点:仅作研究与复盘,不构成投资建议;优先保留原作者说明与许可证
+
 ### 1.选题官(`今日选题`/`选题`/`公众号选题`)
 读`验证输出/ai_briefing_YYYY-MM-DD.txt`或`ai_news_filtered_YYYY-MM-DD.json`→生成15选题(按方向分组)
 格式:

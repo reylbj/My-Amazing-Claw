@@ -48,6 +48,7 @@
 - `skills/product-design-system/`：触发词"产品需求/需求文档/原型设计"，交付`HTML原型 + 需求说明文档 + CHANGELOG`。
 - `skills/wechat-article-formatter/`：触发词"公众号排版/微信文章格式化"，默认橙韵风格。
 - `skills/frontend-slides/`：触发词"演示文稿/PPT转网页/幻灯片/presentation"，零依赖HTML演示文稿生成器，支持PPT转换(python-pptx已装)、12种视觉预设、视觉风格探索。
+- `skills/ai-invest-agent/`：手动调用的投资复盘技能包，入口看`README.md`与`prompts/weekly_review.md`/`prompts/quick_check.md`；覆盖A股/港股/美股四步复盘、33指数温度计，支持MD/DOCX/XLSX输出。
 - `skills/coding-agent-loops`已安装，适合长任务、自动重试、持续编码流程。
 - 企业微信(WeCom)已于 2026-03-12 接入成功：官方插件 `@wecom/wecom-openclaw-plugin` 已安装并加载；配置走 `channels.wecom`，当前为 `dmPolicy=open`、`allowFrom=["*"]`、`groupPolicy=open`；已验证可正常收发消息。
 - 2026-03-23 OpenClaw 网关/Weixin 稳态修复：`scripts/openclaw_guardian.py` 现会同时修三层兼容问题：1）恢复缺失的 `dist/control-ui` 资产；2）为宿主 `openclaw/plugin-sdk` 根入口补回旧版导出（如 `resolvePreferredOpenClawTmpDir` / `withFileLock` 等），确保 `npx -y @tencent-weixin/openclaw-weixin-cli@latest install` 在“首次连接”阶段不再因旧 SDK 导出缺失而崩；3）安装后再次重写 `~/.openclaw/extensions/openclaw-weixin` 与 `wecom` 插件源码到新子模块路径。当前验收标准仍是 `bash scripts/gateway_stable_start.sh` + Dashboard `http://127.0.0.1:18789/` 返回 200。

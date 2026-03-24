@@ -38,6 +38,14 @@ python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --ba
 - 发布命令：`bash scripts/xianyu_live_publish.sh --title "标题" --description "描述"`
 - 约束：先备好文案与首图；发布属外部动作，执行前确认。
 
+## skill: AI投资复盘官
+
+- 触发：`投资复盘` / `投资周报` / `每日快检`
+- 入口：`skills/ai-invest-agent/`
+- 路由：优先按 `README.md` 的 quick start 和 `prompts/weekly_review.md`、`prompts/quick_check.md` 执行。
+- 能力：四步投资复盘、33 指数温度计、10 维度持仓分析、输出 MD / DOCX / XLSX。
+- 硬约束：仅用于研究与工程实践，不构成投资建议；保留原作者署名与许可证。
+
 ## skill: 今日选题官
 
 - 触发：`今日选题` / `选题` / `公众号选题`
