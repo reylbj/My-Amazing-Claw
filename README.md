@@ -20,6 +20,7 @@
 4. 禁止手工 `kill` 网关进程，禁止 `stop + start` 连击；优先 `restart`。
 5. 敏感信息统一放 `.credentials`，不要写进仓库文件。
 6. 长期记忆只写 `MEMORY.md`，不要再建独立记忆目录。
+7. 微信 `clawbot` 已登录但 `openclaw channels status` 只显示 `configured` 时，不要手改配置；直接再跑一次 `bash scripts/gateway_stable_start.sh`。
 
 ## 3 分钟快速上手
 
@@ -40,6 +41,7 @@ bash scripts/gateway_stable_start.sh
 
 - 终端里看到 `RPC probe: ok`
 - Dashboard 可打开：`http://127.0.0.1:18789/`
+- 若已登录微信账号，`scripts/gateway_stable_start.sh` 会顺手补做 `openclaw-weixin` re-arm，避免只 `configured` 不 `running`
 
 ### 3. 检查运行状态
 
@@ -151,6 +153,11 @@ openclaw gateway status
 # 守护状态
 python3 scripts/openclaw_guardian.py status
 ```
+
+补充：
+
+- 已登录微信但 `channels status` 不显示 `running` 时，仍优先重复执行 `bash scripts/gateway_stable_start.sh`
+- `bash scripts/doctor.sh` 现在会提示 `openclaw-weixin` 启动锚点是否缺失
 
 ### 安全基线
 

@@ -307,6 +307,89 @@ check_gateway_runtime() {
   fi
 }
 
+check_weixin_anchor() {
+  local cfg="$HOME/.openclaw/openclaw.json"
+  local accounts_index="$HOME/.openclaw/openclaw-weixin/accounts.json"
+
+  print_info "8) Weixin 启动锚点检查"
+
+  if [[ ! -f "$accounts_index" ]]; then
+    print_ok "未检测到 Weixin 已登录账号索引"
+    return
+  fi
+
+  if ! python3 - "$accounts_index" <<'PY'
+import json
+import sys
+
+try:
+    data = json.load(open(sys.argv[1], "r", encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+
+raise SystemExit(0 if isinstance(data, list) and len(data) > 0 else 1)
+PY
+  then
+    print_warn "Weixin 账号索引不可读或为空"
+    return
+  fi
+
+  if [[ ! -f "$cfg" ]]; then
+    print_warn "缺少 ~/.openclaw/openclaw.json，无法检查 Weixin 启动锚点"
+    return
+  fi
+
+  if python3 - "$cfg" <<'PY'
+import json
+import sys
+
+try:
+    data = json.load(open(sys.argv[1], "r", encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+
+channels = data.get("channels")
+raise SystemExit(0 if isinstance(channels, dict) and "openclaw-weixin" in channels else 1)
+PY
+  then
+    print_ok "已存在 channels.openclaw-weixin 启动锚点"
+  else
+    print_warn "检测到 Weixin 已登录但缺少 channels.openclaw-weixin；若出现 configured 但不 running，先执行: bash scripts/gateway_stable_start.sh"
+  fi
+}
+
+check_qclaw_instance_mode() {
+  local store="$HOME/Library/Application Support/QClaw/app-store.json"
+  local mode=""
+  local gateway_url=""
+
+  print_info "7) QClaw 实例模式检查"
+
+  if [[ ! -f "$store" ]]; then
+    print_ok "未检测到 QClaw 桌面端隔离配置"
+    return
+  fi
+
+  if command -v jq >/dev/null 2>&1; then
+    mode="$(jq -r '.instanceMode.mode // empty' "$store" 2>/dev/null || true)"
+    gateway_url="$(jq -r '.gatewayUrl // empty' "$store" 2>/dev/null || true)"
+  else
+    mode="$(sed -n 's/.*"mode": "\(.*\)".*/\1/p' "$store" | head -n 1)"
+  fi
+
+  if [[ "$mode" == "isolated" ]]; then
+    print_warn "QClaw 当前为 isolated，会绕过稳定 LaunchAgent 网关；微信不回消息时要优先检查 QClaw 自带实例"
+  elif [[ "$mode" == "external" ]]; then
+    if [[ -n "$gateway_url" ]]; then
+      print_ok "QClaw 已切到 external：$gateway_url"
+    else
+      print_warn "QClaw 标记为 external，但未读到 gatewayUrl，请人工确认"
+    fi
+  else
+    print_warn "未能识别 QClaw 实例模式，请人工确认桌面端是否仍在跑 isolated 实例"
+  fi
+}
+
 main() {
   print_info "开始 OpenClaw 体检..."
   echo ""
@@ -356,7 +439,13 @@ main() {
   check_security_baseline
   echo ""
 
+  check_qclaw_instance_mode
+  echo ""
+
   check_gateway_runtime
+  echo ""
+
+  check_weixin_anchor
   echo ""
 
   print_info "体检完成: ✅ $ok_count | ⚠️ $warn_count | ❌ $err_count"

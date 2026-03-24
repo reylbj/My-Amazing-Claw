@@ -19,6 +19,7 @@
 - 工作区固定：`~/.openclaw/workspace-runtime-real`；避免Desktop中文/emoji路径，防`-11 read`。
 - 网关优先`openclaw gateway restart`或`bash scripts/gateway_stable_start.sh`；禁手工kill、禁`stop+start`连击。
 - `scripts/gateway_stable_start.sh`与guardian已修正为: 识别任意`Node 22`实际二进制路径，不再把`/opt/homebrew/opt/node@22/bin/node`误判为漂移；且会对"Service not installed"自动补做`openclaw gateway install --force`。
+- 2026-03-24 Weixin 冷启动补救：`openclaw-weixin` 已登录但只显示`configured`不`running`时，优先重跑`bash scripts/gateway_stable_start.sh`；脚本现会自动做 weixin channel re-arm，避免等 5 分钟健康检查。
 - 企业微信官方插件的真实插件ID是`wecom-openclaw-plugin`，不是频道名`wecom`；若`plugins.allow/entries/installs`误写成`wecom`会让整份`openclaw.json`变 invalid 并卡死网关。guardian `configure` 与 `scripts/gateway_stable_start.sh` 现已在启动前自动迁移旧键并修复。
 - 清理QClaw后若掉线，先查`~/.openclaw/openclaw.json`是否残留`wechat-access`/`content-security`引用；删残留后再`restart`。
 - `whatsapp/telegram`若`groupPolicy=allowlist`且名单为空会丢群消息；空名单时群策略应为`open`。

@@ -17,6 +17,10 @@ ok() { printf '[gateway-stable] OK: %s\n' "$1"; }
 warn() { printf '[gateway-stable] WARN: %s\n' "$1"; }
 err() { printf '[gateway-stable] ERROR: %s\n' "$1" >&2; }
 
+run_openclaw() {
+  PATH="${HOME}/.npm-global/bin:${PATH}" "$OPENCLAW_BIN" "$@"
+}
+
 has_match() {
   local pattern="$1"
   if command -v rg >/dev/null 2>&1; then
@@ -77,7 +81,11 @@ repair_local_config() {
 }
 
 gateway_status() {
-  PATH="${HOME}/.npm-global/bin:${PATH}" "$OPENCLAW_BIN" gateway status 2>&1
+  run_openclaw gateway status 2>&1
+}
+
+channels_status() {
+  run_openclaw channels status 2>&1
 }
 
 install_force_node22() {
@@ -88,7 +96,7 @@ install_force_node22() {
 
 restart_gateway() {
   info "重启网关"
-  PATH="${HOME}/.npm-global/bin:${PATH}" "$OPENCLAW_BIN" gateway restart >/dev/null
+  run_openclaw gateway restart >/dev/null
 }
 
 verify_status_or_fail() {
@@ -209,6 +217,121 @@ probe_until_stable() {
   return 1
 }
 
+weixin_accounts_exist() {
+  local index_path="$HOME/.openclaw/openclaw-weixin/accounts.json"
+
+  [[ -f "$index_path" ]] || return 1
+  python3 - "$index_path" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    data = json.load(open(path, "r", encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+
+raise SystemExit(0 if isinstance(data, list) and len(data) > 0 else 1)
+PY
+}
+
+weixin_status_running() {
+  local status_text="$1"
+  echo "$status_text" | has_match 'openclaw-weixin .* running'
+}
+
+weixin_status_present() {
+  local status_text="$1"
+  echo "$status_text" | has_match 'openclaw-weixin '
+}
+
+weixin_config_anchor_present() {
+  local cfg_path="$HOME/.openclaw/openclaw.json"
+
+  [[ -f "$cfg_path" ]] || return 1
+  python3 - "$cfg_path" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    data = json.load(open(path, "r", encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+
+channels = data.get("channels")
+raise SystemExit(0 if isinstance(channels, dict) and "openclaw-weixin" in channels else 1)
+PY
+}
+
+gateway_config_hash() {
+  run_openclaw gateway call config.get --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["hash"])'
+}
+
+gateway_config_patch() {
+  local raw_patch="$1"
+  local base_hash params_json
+
+  base_hash="$(gateway_config_hash)"
+  params_json="$(python3 - "$base_hash" "$raw_patch" <<'PY'
+import json
+import sys
+
+base_hash = sys.argv[1]
+raw_patch = sys.argv[2]
+print(json.dumps({
+    "baseHash": base_hash,
+    "raw": raw_patch,
+    "restartDelayMs": 0,
+}, ensure_ascii=False))
+PY
+)"
+
+  run_openclaw gateway call config.patch --params "$params_json" --json >/dev/null
+}
+
+verify_weixin_or_warn() {
+  local status_text=""
+
+  if ! weixin_accounts_exist; then
+    return 0
+  fi
+
+  status_text="$(channels_status || true)"
+  if ! weixin_status_present "$status_text"; then
+    warn "检测到 Weixin 账号文件，但 channels status 未显示 openclaw-weixin"
+    return 0
+  fi
+
+  if weixin_status_running "$status_text"; then
+    ok "Weixin channel 已运行"
+    return 0
+  fi
+
+  warn "Weixin 已配置但未显示 running，执行 channel re-arm"
+
+  if ! weixin_config_anchor_present; then
+    info "补写 channels.openclaw-weixin 配置锚点"
+    gateway_config_patch '{"channels":{"openclaw-weixin":{}}}'
+  else
+    info "重置 Weixin 配置锚点以触发热重载"
+    gateway_config_patch '{"channels":{"openclaw-weixin":null}}'
+    probe_until_stable >/dev/null
+    gateway_config_patch '{"channels":{"openclaw-weixin":{}}}'
+  fi
+
+  probe_until_stable >/dev/null
+  sleep 2
+
+  status_text="$(channels_status || true)"
+  if weixin_status_running "$status_text"; then
+    ok "Weixin channel re-arm 成功"
+    return 0
+  fi
+
+  warn "Weixin 未显式显示 running，但已完成热重载；如需复核可执行 openclaw channels status"
+}
+
 main() {
   ensure_runtime_prereq
   repair_local_config
@@ -233,6 +356,7 @@ main() {
   if after_status="$(probe_until_stable)"; then
     verify_status_or_fail "$after_status"
     verify_dashboard_or_fail
+    verify_weixin_or_warn
     ok "稳定启动完成（可安全新建会话）"
     exit 0
   fi
@@ -244,6 +368,7 @@ main() {
   after_status="$(probe_until_stable)"
   verify_status_or_fail "$after_status"
   verify_dashboard_or_fail
+  verify_weixin_or_warn
   ok "二次修复成功（可安全新建会话）"
 }
 

@@ -82,6 +82,21 @@ pip install -r requirements.txt
 
 ---
 
+## Gateway / Weixin
+
+### 推荐入口
+```bash
+bash scripts/gateway_stable_start.sh
+bash scripts/doctor.sh
+```
+
+### 当前约定
+- 网关只用 `restart` / `gateway_stable_start.sh`，不手工 `kill`
+- `openclaw-weixin` 已登录但 `openclaw channels status` 只见 `configured` 时，直接重跑 `bash scripts/gateway_stable_start.sh`
+- `doctor.sh` 会额外检查 Weixin 启动锚点是否缺失
+
+---
+
 ## 模型路由
 
 ### 当前默认

@@ -1229,6 +1229,14 @@ def extract_line_timestamp(line: str) -> datetime | None:
     return None
 
 
+def is_cli_diagnostic_line(line: str) -> bool:
+    return '"name":"openclaw"' in line and (
+        "Gateway not reachable" in line
+        or PATTERN_FETCH_FAILED in line
+        or PATTERN_ABNORMAL_CLOSE in line
+    )
+
+
 def tail_lines(path: Path, *, max_lines: int = 800) -> list[str]:
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         return list(deque(handle, maxlen=max_lines))
@@ -1269,11 +1277,11 @@ def collect_recent_incidents(paths: Iterable[Path], *, lookback_minutes: int) ->
                 counts["unknown_read"] += 1
                 latest["unknown_read"] = timestamp.isoformat()
                 events["unknown_read"].append(timestamp.isoformat())
-            if PATTERN_ABNORMAL_CLOSE in line:
+            if PATTERN_ABNORMAL_CLOSE in line and not is_cli_diagnostic_line(line):
                 counts["abnormal_close"] += 1
                 latest["abnormal_close"] = timestamp.isoformat()
                 events["abnormal_close"].append(timestamp.isoformat())
-            if PATTERN_FETCH_FAILED in line:
+            if PATTERN_FETCH_FAILED in line and not is_cli_diagnostic_line(line):
                 counts["fetch_failed"] += 1
                 latest["fetch_failed"] = timestamp.isoformat()
                 events["fetch_failed"].append(timestamp.isoformat())
@@ -1981,8 +1989,6 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
         reasons.append("gateway-port-down")
     if not is_launchagent_node22():
         reasons.append("gateway-node-drift")
-    if not whatsapp_linked(status_output):
-        reasons.append("whatsapp-not-linked")
     if latest_incident_after(incidents, handled_after, "unknown_read"):
         reasons.append("unknown-system-error-11")
     if latest_incident_after(incidents, handled_after, "abnormal_close"):
@@ -2061,6 +2067,7 @@ def check_once(*, dry_run: bool, force_restart: bool, verbose: bool) -> int:
 
 
 def self_test() -> int:
+    recent_base = now_utc() - timedelta(minutes=5)
     sample_web = """const MESSAGE_TIMEOUT_MS = tuning.messageTimeoutMs ?? 1800 * 1e3;
 ...minutesSinceLastMessage !== null && minutesSinceLastMessage > 30 ? { minutesSinceLastMessage } : {}
 if (minutesSinceLastMessage && minutesSinceLastMessage > 30) heartbeatLogger.warn(logData, "⚠️ web gateway heartbeat - no messages in 30+ minutes");
@@ -2150,9 +2157,9 @@ await processForRoute(msg, route, groupHistoryKey);
         incident_log.write_text(
             '\n'.join(
                 [
-                    '[2026-03-17T19:08:41+00:00] [whatsapp] channel exited {"statusCode":408,"message":"Request Time-out"}',
-                    '[2026-03-17T19:08:42+00:00] [wecom] WebSocket error: getaddrinfo ENOTFOUND openws.work.weixin.qq.com',
-                    '[2026-03-17T19:08:43+00:00] [telegram] fetch fallback: enabling sticky IPv4-only dispatcher (codes=UND_ERR_CONNECT_TIMEOUT)',
+                    f'[{(recent_base + timedelta(seconds=1)).isoformat()}] [whatsapp] channel exited {{"statusCode":408,"message":"Request Time-out"}}',
+                    f'[{(recent_base + timedelta(seconds=2)).isoformat()}] [wecom] WebSocket error: getaddrinfo ENOTFOUND openws.work.weixin.qq.com',
+                    f'[{(recent_base + timedelta(seconds=3)).isoformat()}] [telegram] fetch fallback: enabling sticky IPv4-only dispatcher (codes=UND_ERR_CONNECT_TIMEOUT)',
                 ]
             )
             + "\n",
@@ -2161,6 +2168,21 @@ await processForRoute(msg, route, groupHistoryKey);
         incident_summary = collect_recent_incidents([incident_log], lookback_minutes=10_000)
         assert incident_summary.counts["dns_lookup"] == 1
         assert incident_summary.counts["transport_timeout"] == 2
+    with tempfile.TemporaryDirectory() as tmp:
+        cli_log = Path(tmp) / "cli.log"
+        cli_log.write_text(
+            '\n'.join(
+                [
+                    f'{{"0":"TypeError: fetch failed","_meta":{{"name":"openclaw"}},"time":"{(recent_base + timedelta(seconds=4)).isoformat()}"}}',
+                    f'{{"0":"Gateway not reachable: Error: gateway closed (1006 abnormal closure (no close frame)): no close reason","_meta":{{"name":"openclaw"}},"time":"{(recent_base + timedelta(seconds=5)).isoformat()}"}}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        cli_summary = collect_recent_incidents([cli_log], lookback_minutes=10_000)
+        assert cli_summary.counts["fetch_failed"] == 0
+        assert cli_summary.counts["abnormal_close"] == 0
     with tempfile.TemporaryDirectory() as tmp:
         sessions_dir = Path(tmp) / "agents" / "main" / "sessions"
         sessions_dir.mkdir(parents=True, exist_ok=True)
@@ -2320,9 +2342,9 @@ await processForRoute(msg, route, groupHistoryKey);
         model_log.write_text(
             '\n'.join(
                 [
-                    '{"1":"overload backoff before failover for api123/claude-sonnet-4-6: attempt=1 delayMs=263","time":"2026-03-12T15:53:05.867+00:00"}',
-                    '{"1":"lane task error: lane=main durationMs=24167 error=\\"FailoverError: The AI service is temporarily unavailable (HTTP 504). Please try again in a moment.\\"","time":"2026-03-12T15:53:06.139+00:00"}',
-                    '{"1":"embedded run agent end: runId=abc isError=true error=400 Improperly formed request. (request id: foo)","time":"2026-03-12T15:53:07.139+00:00"}',
+                    f'{{"1":"overload backoff before failover for api123/claude-sonnet-4-6: attempt=1 delayMs=263","time":"{(recent_base + timedelta(seconds=6)).isoformat()}"}}',
+                    f'{{"1":"lane task error: lane=main durationMs=24167 error=\\\"FailoverError: The AI service is temporarily unavailable (HTTP 504). Please try again in a moment.\\\"","time":"{(recent_base + timedelta(seconds=7)).isoformat()}"}}',
+                    f'{{"1":"embedded run agent end: runId=abc isError=true error=400 Improperly formed request. (request id: foo)","time":"{(recent_base + timedelta(seconds=8)).isoformat()}"}}',
                 ]
             )
             + "\n",

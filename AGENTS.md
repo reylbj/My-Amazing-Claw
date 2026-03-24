@@ -10,6 +10,7 @@
 日常:`openclaw gateway restart && openclaw gateway status`
 推荐:`bash scripts/gateway_stable_start.sh`
 通过标准:`RPC probe: ok`+Dashboard`http://127.0.0.1:18789/`
+微信自愈:`openclaw-weixin`已登录但`channels status`仅`configured`时, 仍先跑`bash scripts/gateway_stable_start.sh`; 脚本会自动做weixin channel re-arm, 不手改`openclaw.json`
 禁止:手工kill、stop+start连击
 复位:restart→install --force→restart
 guardian自愈:主`webchat`坏session会自动清索引+稳定重启; 连续`DNS/408`抖动达阈值才恢复, 避免单次波动误重启
