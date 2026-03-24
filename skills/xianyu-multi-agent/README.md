@@ -491,13 +491,14 @@ CONNECTION_TIMEOUT=30
 
 ### 🙏 致谢
 
-本项目基于以下开源项目构建：
+本技能目录整合并扩展了多个闲鱼自动化相关开源项目的能力，当前主要引用来源如下：
 
-- [XianyuAutoAgent](https://github.com/shaxiu/XianyuAutoAgent)**] - 闲鱼智能闲鱼客服机器人系统
-- 感谢所有贡献者的支持和反馈
-- [XianYuApis](https://github.com/cv-cat/XianYuApis) - 闲鱼API接口
-- 感谢所有贡献者的支持和反馈
-- 
+- [XianyuAutoAgent](https://github.com/shaxiu/XianyuAutoAgent) - 闲鱼自动化流程与交互思路的重要参考
+- [XianYuApis](https://github.com/cv-cat/XianYuApis) - 闲鱼接口与逆向信息的参考来源
+
+本仓库上的改动主要集中在 OpenClaw 工作区接入、脚本编排、发布链路收敛与中文使用说明；原项目的思路、逆向成果和社区贡献归属于各自作者与贡献者。
+
+感谢上述项目的作者、维护者和所有社区贡献者，也感谢持续提供测试反馈和使用建议的用户。
 
 ---
 
@@ -775,4 +776,3 @@ v联系: wtfm06
 <div align="center">
 
 **🚀 让AI为你的闲鱼生意保驾护航！**
-

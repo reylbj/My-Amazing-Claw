@@ -144,6 +144,16 @@ ai-invest-agent/
 
 ---
 
+## Open Source Attribution
+
+The `skills/ai-invest-agent/` directory is a synchronized integration of the open-source project [AIPMAndy/ai-invest-agent](https://github.com/AIPMAndy/ai-invest-agent).
+
+This workspace preserves the original author attribution, license, and project structure. Changes made here are limited to OpenClaw workspace integration, documentation adaptation, runtime validation, and supporting automation scripts; they do not alter the original ownership or licensing boundaries of the upstream project.
+
+If you redistribute or build on top of this directory, please keep the upstream attribution and follow the `LICENSE` and contribution rules included in this project.
+
+---
+
 ## 👨‍💻 Author
 
 **Andy** — Former AI Product Expert at Tencent & Baidu → VP at LLM Unicorn → Startup CEO
@@ -152,6 +162,14 @@ Building repeatable AI-powered investment analysis systems.
 
 [![WeChat](https://img.shields.io/badge/WeChat-AIPMAndy-07C160?logo=wechat&logoColor=white)](.)
 [![GitHub](https://img.shields.io/badge/GitHub-AIPMAndy-181717?logo=github)](https://github.com/AIPMAndy)
+
+---
+
+## 🙏 Acknowledgements
+
+- Thanks to [AIPMAndy/ai-invest-agent](https://github.com/AIPMAndy/ai-invest-agent) creator Andy for open-sourcing the investment review framework behind this directory.
+- Thanks to everyone who contributed issues, pull requests, documentation, and user feedback to the upstream project.
+- Thanks to the broader open-source community sharing investment-analysis, data-organization, and prompt-engineering practices that make reusable workflows like this possible.
 
 ---
 

@@ -144,6 +144,16 @@ ai-invest-agent/
 
 ---
 
+## 开源引用说明
+
+`skills/ai-invest-agent/` 目录来自开源项目 [AIPMAndy/ai-invest-agent](https://github.com/AIPMAndy/ai-invest-agent) 的同步集成版本。
+
+本工作区保留原作者署名、许可证和项目结构；当前仓库中的调整主要用于 OpenClaw 工作区接入、文档适配、运行校验和配套脚本编排，不改变原项目的署名归属与许可证边界。
+
+如果你在此目录基础上继续分发或二次开发，请同时遵守本目录内的 `LICENSE`、作者署名要求和上游项目的贡献规范。
+
+---
+
 ## 👨‍💻 作者
 
 **Andy** — 前腾讯/百度 AI 产品专家 → 大模型独角兽 VP → 创业 CEO
@@ -152,6 +162,14 @@ ai-invest-agent/
 
 [![微信](https://img.shields.io/badge/微信-AIPMAndy-07C160?logo=wechat&logoColor=white)](.)
 [![GitHub](https://img.shields.io/badge/GitHub-AIPMAndy-181717?logo=github)](https://github.com/AIPMAndy)
+
+---
+
+## 🙏 致谢
+
+- 感谢 [AIPMAndy/ai-invest-agent](https://github.com/AIPMAndy/ai-invest-agent) 原作者 Andy 持续开源这套投资复盘框架。
+- 感谢所有向上游项目提交 Issue、PR、文档改进与使用反馈的贡献者。
+- 感谢围绕投资分析、数据整理和提示词工程分享经验的开源社区，让这类可复用方法论可以不断迭代。
 
 ---
 

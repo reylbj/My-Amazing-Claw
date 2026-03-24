@@ -36,6 +36,17 @@
 
 ## 🚀 使用方式总览
 
+### 开源引用说明
+
+本技能包基于 [comeonzhj/Auto-Redbook-Skills](https://github.com/comeonzhj/Auto-Redbook-Skills) 的思路与目录结构继续演进，并结合 OpenClaw 工作区做了本地化集成。当前仓库内的主要改动集中在：
+
+- 重写渲染脚本与主题样式体系
+- 增加更稳的分页模式与多主题排版
+- 接入 OpenClaw 的固定工作区路径和发布流程
+- 补充更适合日常使用的中文文档与操作说明
+
+涉及到的第三方依赖与社区能力仍归属于各自作者和贡献者，使用或再分发时请遵守对应许可证与署名要求。
+
 ### 1. 克隆项目
 
 ```bash
@@ -203,10 +214,12 @@ Auto-Redbook-Skills/
 
 ## 🙏 致谢
 
-- [Playwright](https://playwright.dev/) - 浏览器自动化渲染
-- [Marked](https://marked.js.org/) - Markdown 解析
-- [xhs](https://github.com/ReaJason/xhs) - 小红书 API 客户端
-- **Cursor** - 本次重构过程中提供了极大帮助 ❤️
+- 感谢 [Auto-Redbook-Skills](https://github.com/comeonzhj/Auto-Redbook-Skills) 的作者与社区贡献者，为小红书内容自动化提供了最初的能力基础。
+- 感谢 [Playwright](https://playwright.dev/) 维护者与贡献者，支撑浏览器自动化渲染与发布流程。
+- 感谢 [Marked](https://marked.js.org/) 维护者与贡献者，提供稳定的 Markdown 解析能力。
+- 感谢 [xhs](https://github.com/ReaJason/xhs) 维护者与贡献者，为本地发布模式提供客户端支持。
+- 感谢所有向相关项目提交 Issue、PR、文档和使用反馈的开发者与用户。
+- **Cursor** - 本次重构过程中提供了辅助开发支持。
 
 ---
 

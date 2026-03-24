@@ -114,6 +114,24 @@ python3 scripts/openclaw_guardian.py status
 
 如果不知道一个任务该走哪个 skill，优先看 [SKILLS.md](SKILLS.md)。如果知道要做什么但不知道怎么执行，直接进对应 skill 目录读它自己的 `SKILL.md`、`README.md` 或 `AGENTS.md`。
 
+## 开源项目引用与致谢
+
+本工作区整合了多个开源项目与社区组件，用于补齐内容生成、发布自动化、公开信息读取和投资复盘能力。这里特别说明两点：
+
+- 本仓库会保留原项目作者署名、许可证和必要的引用说明。
+- 本仓库上的改动主要集中在 OpenClaw 工作区接入、稳定性加固、脚本编排、中文文档和使用流程收敛，不改变原项目的原始署名归属。
+
+当前直接集成或显式引用的核心开源项目包括：
+
+| 目录 / 能力 | 上游项目 | 说明 |
+| --- | --- | --- |
+| `skills/ai-invest-agent/` | [AIPMAndy/ai-invest-agent](https://github.com/AIPMAndy/ai-invest-agent) | 投资复盘与温度计分析能力 |
+| `skills/小红书笔记技能包/` | [comeonzhj/Auto-Redbook-Skills](https://github.com/comeonzhj/Auto-Redbook-Skills) | 小红书卡片渲染与发布技能基础 |
+| `skills/xianyu-multi-agent/` | [shaxiu/XianyuAutoAgent](https://github.com/shaxiu/XianyuAutoAgent)、[cv-cat/XianYuApis](https://github.com/cv-cat/XianYuApis) | 闲鱼自动化与接口能力参考来源 |
+| 内容读取桥接 | [runesleo/x-reader](https://github.com/runesleo/x-reader) | 公开内容读取与信息抓取支持 |
+
+感谢上述项目的作者、维护者与每一位贡献者。没有这些开源工作，这个工作区不会这么快形成可复用的稳定链路。
+
 ## 日常命令速查
 
 ### 网关与守护
