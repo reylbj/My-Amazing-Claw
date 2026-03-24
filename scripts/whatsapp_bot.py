@@ -149,7 +149,6 @@ def handle_topic_selection(choice):
         media_id = push_draft(
             title=topic['title'],
             content=html_content,
-            author="RaysPianoLive",
             digest=topic['digest'] or topic['title'][:18]
         )
 

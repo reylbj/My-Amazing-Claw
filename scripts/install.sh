@@ -191,18 +191,19 @@ setup_api_key() {
     case $choice in
         1)
             echo ""
-            read -p "请输入 Claude API 密钥: " api_key
+            read -s -p "请输入 Claude API 密钥: " api_key
+            echo ""
             if [ -n "$api_key" ]; then
                 export CLAUDE_API_KEY="$api_key"
                 print_success "API 密钥已设置（临时）"
                 echo ""
-                print_info "要永久设置，请添加到 shell 配置文件："
+                print_info "要永久设置，请手动把占位符替换成真实值后写入 shell 配置文件："
 
                 if [ "$SHELL" = "/bin/zsh" ] || [ "$SHELL" = "/usr/bin/zsh" ]; then
-                    echo "  echo 'export CLAUDE_API_KEY=\"$api_key\"' >> ~/.zshrc"
+                    echo "  echo 'export CLAUDE_API_KEY=\"your-api-key-here\"' >> ~/.zshrc"
                     echo "  source ~/.zshrc"
                 else
-                    echo "  echo 'export CLAUDE_API_KEY=\"$api_key\"' >> ~/.bashrc"
+                    echo "  echo 'export CLAUDE_API_KEY=\"your-api-key-here\"' >> ~/.bashrc"
                     echo "  source ~/.bashrc"
                 fi
             fi

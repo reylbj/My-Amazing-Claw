@@ -115,6 +115,15 @@ class XianyuAPI:
             'message': '发布功能需要进一步分析闲鱼API'
         }
 
+
+def _mask_identifier(value: str) -> str:
+    """Mask account identifiers before printing them to shared terminals/logs."""
+    if len(value) <= 2:
+        return "*" * len(value)
+    if len(value) <= 6:
+        return f"{value[0]}***{value[-1]}"
+    return f"{value[:2]}***{value[-2:]}"
+
 def main():
     """命令行测试"""
     print("=" * 50)
@@ -130,7 +139,7 @@ def main():
         if user_info:
             print(f"\n👤 当前用户:")
             for key, value in user_info.items():
-                print(f"   {key}: {value}")
+                print(f"   {key}: {_mask_identifier(str(value))}")
         
         print("\n📝 Cookie已就绪，可以进行后续操作")
         print("\n使用示例:")

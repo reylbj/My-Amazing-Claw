@@ -19,7 +19,7 @@ import requests
 
 
 REQUEST_TIMEOUT_SECONDS = 20
-DEFAULT_AUTHOR = "RaysPianoLive"
+FALLBACK_AUTHOR = "OpenClaw"
 DEFAULT_THUMB_MEDIA_ID = "d59as12_SarRDV5X0i_Gfieuz-9y2MnIe5UqdgrqkdjrYuNSfCJ3sjZ5TQf0_6h-"
 MAX_TITLE_BYTES = 64
 MAX_DIGEST_BYTES = 54
@@ -29,23 +29,34 @@ def credentials_file() -> Path:
     return Path(__file__).resolve().parent.parent / ".credentials"
 
 
-def _load_credentials_from_file() -> tuple[str | None, str | None]:
-    """Read WeChat credentials from a flat KEY=VALUE file when available."""
-    appid = appsecret = None
+def _load_credential_value(name: str) -> str | None:
+    """Read a single KEY=VALUE entry from `.credentials` when available."""
     path = credentials_file()
     if not path.exists():
-        return appid, appsecret
+        return None
 
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = (part.strip() for part in line.split("=", 1))
-        if key == "WECHAT_APPID":
-            appid = value
-        elif key == "WECHAT_APPSECRET":
-            appsecret = value
-    return appid, appsecret
+        if key == name:
+            return value
+    return None
+
+
+def _load_credentials_from_file() -> tuple[str | None, str | None]:
+    """Read WeChat credentials from a flat KEY=VALUE file when available."""
+    return _load_credential_value("WECHAT_APPID"), _load_credential_value("WECHAT_APPSECRET")
+
+
+def resolve_default_author() -> str:
+    """Prefer caller/environment config over a repository hard-coded identity."""
+    for key in ("WECHAT_AUTHOR", "WECHAT_DEFAULT_AUTHOR"):
+        value = _load_credential_value(key) or os.environ.get(key)
+        if value:
+            return value
+    return FALLBACK_AUTHOR
 
 
 def _get_wechat_credentials() -> tuple[str, str]:
@@ -139,7 +150,7 @@ def build_draft_payload(
         "articles": [
             {
                 "title": safe_title,
-                "author": author or DEFAULT_AUTHOR,
+                "author": author or resolve_default_author(),
                 "digest": safe_digest,
                 "content": content,
                 "content_source_url": "",
@@ -230,7 +241,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--title", required=False, help="文章标题")
     parser.add_argument("--content", required=False, help="文章内容（Markdown或HTML）")
     parser.add_argument("--digest", required=False, default="", help="文章摘要")
-    parser.add_argument("--author", required=False, default=DEFAULT_AUTHOR, help="作者")
+    parser.add_argument("--author", required=False, default="", help="作者")
     parser.add_argument("--file", required=False, help="从Markdown文件读取内容")
     parser.add_argument("--test", action="store_true", help="仅测试连接")
     return parser.parse_args()

@@ -128,7 +128,6 @@ def simulate_whatsapp_workflow(choice):
         media_id = push_draft(
             title=topic['title'],
             content=html_content,
-            author="RaysPianoLive",
             digest=topic['digest']
         )
 
