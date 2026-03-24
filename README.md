@@ -1,249 +1,294 @@
-# OpenClaw 快速入门 🚀
+# OpenClaw Workspace
 
-## 2026-03-08 核心更新（极简）
-- guardian 运行目录已迁到 `~/.openclaw/guardian_runtime/scripts`，规避 macOS 对 Desktop 路径的 `Operation not permitted` 拦截。
-- 统一安装入口：`bash scripts/install_openclaw_guardian.sh`（会自动同步脚本到 runtime 目录并重建 LaunchAgent）。
-- 验证口径：`openclaw status` + `openclaw gateway status` + `launchctl list | rg ai.openclaw.guardian`。
-- 网关工作区固定为 `~/.openclaw/workspace-runtime-real`（真实本地目录，非 Desktop/非软链接），避免触发 `-11 read`。
-- 聊天回归口径：连续运行 `openclaw agent --agent main --message "只回OK" --json` 2-3 次，均应 `status=ok` 且不出现 fallback。
+这是 Ray 的 OpenClaw 运行工作区，已经收敛成一套可直接使用的内容运营与产品协作环境。
 
-## 核心文档（每次执行前必读）
-- [SKILLS.md](SKILLS.md) - 技能树与软件使用细则
-- [HEARTBEAT.md](HEARTBEAT.md) - 安全控制与权限底线
-- [AGENTS.md](AGENTS.md) - 智能体运行标准
-- [IDENTITY.md](IDENTITY.md) - 员工档案与职责
-- [TOOLS.md](TOOLS.md) - 工具权限汇总
-- [MEMORY.md](MEMORY.md) - 长期记忆学习
-- [SOUL.md](SOUL.md) - 灵魂底色
+你可以把它理解成一个已经接好常用链路的 AI 员工工作台，重点覆盖这些场景：
 
-## 快速开始（3分钟）
-1. 查看技能列表：`openclaw skills check`
-2. 启动服务（稳定版）：
-   - 一次性固化：`npm install -g node@22 && openclaw gateway install --force`
-   - 日常启动（推荐唯一入口）：`bash scripts/gateway_stable_start.sh`
-   - 或兼容方式：`openclaw gateway restart && openclaw gateway status`
-3. 测试对话：发送消息到配置的频道
+- `AI简报` / `今日选题` / 公众号成稿与草稿箱推送
+- `小红书笔记` 图文生成与发布链路
+- `闲鱼发布` 半自动运营链路
+- `产品需求` / `原型设计` / `演示文稿`
+- `投资复盘` / `投资周报` / `每日快检`
 
-### 网关查看地址
-- Dashboard：`http://127.0.0.1:18789/`
+如果你是第一次接手这个项目，先按下面的 3 分钟流程跑通，再去看细节文档。
 
-### 聊天框 `-11` 快速恢复
+## 先知道这 6 件事
+
+1. 运行时固定为 `Node 22 LTS`。
+2. 工作区固定为 `~/.openclaw/workspace-runtime-real`，不要搬到 Desktop、中文路径或 emoji 路径。
+3. 日常启动只推荐 `bash scripts/gateway_stable_start.sh`。
+4. 禁止手工 `kill` 网关进程，禁止 `stop + start` 连击；优先 `restart`。
+5. 敏感信息统一放 `.credentials`，不要写进仓库文件。
+6. 长期记忆只写 `MEMORY.md`，不要再建独立记忆目录。
+
+## 3 分钟快速上手
+
+### 1. 一次性准备
+
+```bash
+npm install -g node@22
+openclaw gateway install --force
+```
+
+### 2. 日常启动
+
 ```bash
 bash scripts/gateway_stable_start.sh
-# 若仍异常（手动兜底）：
-openclaw gateway install --force && openclaw gateway restart
 ```
-通过标准：脚本输出 `可安全新建会话`（内部已做连续探针稳定性检查）
-注意：点刷新后先跑一次稳定脚本，再开 `new session`，避免在 Warm-up 窗口触发 `-11 read`
 
-### 24x7 待命守护
+通过标准：
+
+- 终端里看到 `RPC probe: ok`
+- Dashboard 可打开：`http://127.0.0.1:18789/`
+
+### 3. 检查运行状态
+
+```bash
+openclaw gateway status
+openclaw status
+openclaw agent --agent main --message "只回OK" --json
+```
+
+通过标准：
+
+- `openclaw gateway status` 正常
+- `openclaw status` 正常
+- 连跑 2 到 3 次 `openclaw agent`，都返回 `status=ok`，且不出现 fallback
+
+### 4. 安装 24x7 守护
+
 ```bash
 bash scripts/install_openclaw_guardian.sh
-# 或统一入口：
-bash scripts/openclaw.sh guard install
-```
-这会做 4 件事：
-- 给已安装的 OpenClaw runtime 打补丁，把 WhatsApp/Web 待命超时默认提升到 24 小时（全天待命）
-- 把 `agents.defaults.heartbeat.every` 调整为 `0m`，避免周期性触发 `-11`
-- 将 `openclaw.json` 中不兼容字段自动清理（如 `web.messageTimeoutMs` / `web.watchdogCheckMs` / `gateway.channelHealth`）
-- 安装 `ai.openclaw.guardian` LaunchAgent，每分钟巡检一次，命中 `-11` / 异常关闭时自动自愈
-
-2026-03-08 补充：
-- 补丁改为按内容自动发现（覆盖 `daemon-cli` / `plugin-sdk`），避免版本文件名漂移导致补丁漏打。
-- 收到 `Unknown system error -11, read` 时，入站处理会自动重试 1 次（250ms），降低偶发读错误对回复链路的影响。
-- 当 `whatsapp/telegram` 群策略是 `allowlist` 且名单为空时，`configure` 会自动改为 `groupPolicy=open`，避免群消息被静默丢弃。
-
-查看守护状态：
-```bash
 python3 scripts/openclaw_guardian.py status
 ```
 
----
+这一步会做 4 件事：
 
-## 🔐 安全加固（2026-03-07，基于 openclaw-security 落地）
+- 给 OpenClaw runtime 打稳定性补丁
+- 把 `heartbeat` 调整到更稳的口径
+- 自动清理不兼容配置字段
+- 安装 `guardian` 做周期巡检与自愈
 
-### 一键巡检
+## 核心文档怎么读
+
+启动顺序以 [SOUL.md](SOUL.md)、[IDENTITY.md](IDENTITY.md)、[USER.md](USER.md)、[MEMORY.md](MEMORY.md) 为准。
+
+真正上手时，建议按这个顺序看：
+
+| 文件 | 作用 | 什么时候看 |
+| --- | --- | --- |
+| [SOUL.md](SOUL.md) | 风格、原则、底线 | 想知道这个系统怎么做判断时 |
+| [IDENTITY.md](IDENTITY.md) | AI 员工身份与职责 | 想知道它主要能做什么时 |
+| [USER.md](USER.md) | Ray 的偏好、内容风格、工作方式 | 生成内容前 |
+| [MEMORY.md](MEMORY.md) | 长期有效的稳定事实、故障解法、已部署能力 | 执行前和复盘后 |
+| [HEARTBEAT.md](HEARTBEAT.md) | 安全红线、哪些操作必须确认 | 动手改配置、发消息、推送前 |
+| [AGENTS.md](AGENTS.md) | 运行 SOP、触发词、链路入口 | 不知道一句话该怎么触发时 |
+| [SKILLS.md](SKILLS.md) | 当前有效技能路由和关键约束 | 想知道某类任务该走哪条链路时 |
+| [TOOLS.md](TOOLS.md) | 本机工具、脚本入口、环境说明 | 需要执行具体命令时 |
+
+## 新手最常用的触发词
+
+| 你说什么 | 系统会做什么 |
+| --- | --- |
+| `AI简报` / `今日AI` | 输出当日 Top 5 到 10 条 AI 动态 |
+| `今日选题` / `选题` | 生成 15 个公众号候选选题 |
+| `回复编号` | 生成 888 到 1888 字文章并推公众号草稿箱 |
+| `公众号排版` / `微信文章格式化` | 把 Markdown 转成公众号兼容 HTML |
+| `小红书笔记` | 走小红书图文内容与发布链路 |
+| `闲鱼发布` / `咸鱼运营` | 走闲鱼半自动发布链路 |
+| `产品需求` / `原型设计` | 产出 HTML 原型、需求文档、CHANGELOG |
+| `演示文稿` / `PPT转网页` | 生成零依赖 HTML 幻灯片 |
+| `投资复盘` / `投资周报` / `每日快检` | 调用 `skills/ai-invest-agent/` 做投资复盘 |
+
+## 关键 Skills 一览
+
+| Skill | 路径 | 触发词 | 主要用途 | 入口 |
+| --- | --- | --- | --- | --- |
+| 小红书增长官 | `skills/小红书笔记技能包/` | `小红书笔记` / `小红书帖子` | 生成封面、卡片图、payload，并走小红书发布链路 | `README.md` / `SKILL.md` / `scripts/render_xhs.py` |
+| 公众号排版工具 | `skills/wechat-article-formatter/` | `公众号排版` / `微信文章格式化` | 把 Markdown 转成公众号兼容 HTML | `SKILL.md` |
+| 咸鱼运营官 | `skills/xianyu-multi-agent/` | `闲鱼发布` / `咸鱼运营` | 生成文案并走闲鱼半自动发布链路 | `README.md` / `SCRIPTS_README.md` |
+| 产品设计系统 | `skills/product-design-system/` | `产品需求` / `产品原型` / `需求文档` | 输出 HTML 原型、需求说明文档、CHANGELOG | `AGENTS.md` |
+| 前端演示文稿生成器 | `skills/frontend-slides/` | `演示文稿` / `PPT转网页` / `presentation` | 生成单文件 HTML 幻灯片，支持 PPT 转换 | `SKILL.md` |
+| AI 投资复盘官 | `skills/ai-invest-agent/` | `投资复盘` / `投资周报` / `每日快检` | 做跨市场投资复盘、温度计检查、文档导出 | `README.md` / `prompts/*.md` |
+| coding-agent-loops | `skills/coding-agent-loops/` | `长任务编码` / `持续跑agent` | 适合长周期编码、自动重试、多 agent 协作 | `SKILL.md` |
+
+如果不知道一个任务该走哪个 skill，优先看 [SKILLS.md](SKILLS.md)。如果知道要做什么但不知道怎么执行，直接进对应 skill 目录读它自己的 `SKILL.md`、`README.md` 或 `AGENTS.md`。
+
+## 日常命令速查
+
+### 网关与守护
+
 ```bash
-bash scripts/security_baseline.sh check
-# 或
-bash scripts/openclaw.sh security
+# 推荐唯一日常入口
+bash scripts/gateway_stable_start.sh
+
+# 常规状态检查
+openclaw gateway status
+openclaw status
+
+# 推荐复位方式
+openclaw gateway restart
+openclaw gateway status
+
+# 守护状态
+python3 scripts/openclaw_guardian.py status
 ```
 
-### 权限收敛（建议首次执行一次）
+### 安全基线
+
 ```bash
+bash scripts/security_baseline.sh check
 bash scripts/security_baseline.sh fix
 ```
 
-### 已落地的低侵入安全增强
-- 移除 `scripts/activate_agent_tools.sh` 中的 `eval` 直接执行路径（保留兼容 `--run`）。
-- `scripts/xiaohongshu_send_setup.sh` 增加 `umask 077`、关键目录/文件权限收敛、端口与布尔参数校验。
-- `skills/小红书笔记技能包/scripts/render_xhs_v2.js` 将 YAML 解析收敛到 `JSON_SCHEMA`。
-- `scripts/wechat_draft.py` 不再输出 token 片段，避免凭证侧漏。
-- `scripts/doctor.sh` 新增安全基线检查步骤，统一纳入体检流程。
+### 公众号草稿箱
 
----
-
-
-## 📋 快速命令参考
-
-### 安装
 ```bash
-npm install -g openclaw
-openclaw setup
+python3 scripts/wechat_draft.py --file "drafts/文章.md" --title "标题" --digest "摘要"
 ```
 
-### 配置
+规则：
+
+- 未执行脚本且未看到成功结果，不能说“草稿箱已更新”
+- 报 `40164 invalid ip` 时，先去微信后台加 IP 白名单
+
+### 小红书
+
 ```bash
-openclaw configure
+python3 skills/小红书笔记技能包/scripts/render_xhs.py content.md -o /tmp/xhs -t playful-geometric -m auto-split
+python3 skills/小红书笔记技能包/scripts/publish_xhs.py --payload /tmp/xhs/payload.json --browser-mode --browser-profile-dir ~/xhs_workspace/xiaohongshu-send/profile-persistent --cookies-path ~/xhs_workspace/xiaohongshu-send/data/cookies.json
 ```
 
-### 启动服务
+规则：
+
+- 默认先发“仅自己可见”
+- `payload` 必须带 `content`
+- 图不超过 8 张
+- 出现扫码通常意味着 Cookie 已失效
+
+### 闲鱼
+
 ```bash
+bash scripts/xianyu_live_publish.sh --title "标题" --description "描述"
+```
+
+规则：
+
+- 发布是外部动作，执行前必须确认
+- 先准备好文案和首图
+
+## 关键运行细节
+
+这些是 README 必须保留的稳定事实：
+
+- 默认模型链路：`openai-codex/gpt-5.4` -> `openai-codex/gpt-5.3-codex`
+- 默认停用 `api123/*` 自动路由
+- `wecom` 官方插件真实 ID 是 `wecom-openclaw-plugin`
+- `guardian` 会处理坏 session、模型熔断和部分配置漂移
+- `scripts/gateway_stable_start.sh` 是当前最稳的网关启动入口
+- `MEMORY.md` 是唯一长期记忆落盘位置
+
+## 安全边界
+
+### 可以直接做
+
+- 读文件、搜索、分析、生成草稿
+- 推公众号草稿箱
+- 抓公开内容
+
+### 先确认再做
+
+- WhatsApp 发送
+- 公开发布
+- Cookie 导入或更新
+- 安装软件、改配置、推送 GitHub、外部 API 写操作
+
+### 明确不要做
+
+- `rm -rf`
+- 手工改 `~/.openclaw/openclaw.json`
+- 手工 kill 网关进程
+- 泄露 `.credentials`、Token、Cookie、密钥
+
+细节边界以 [HEARTBEAT.md](HEARTBEAT.md) 为准。
+
+## 常见故障处理
+
+### 1. 聊天框报 `-11 read`
+
+先跑：
+
+```bash
+bash scripts/gateway_stable_start.sh
+```
+
+如果还异常，再跑：
+
+```bash
+openclaw gateway install --force
 openclaw gateway restart
+```
+
+不要做：
+
+- 不要手工 kill
+- 不要 `stop + start` 连击
+- 不要在 Dashboard 刚 warm-up 时急着新建 session
+
+### 2. Dashboard 打不开
+
+先检查：
+
+```bash
 openclaw gateway status
 ```
 
-### 查看状态
+再回到推荐入口：
+
 ```bash
-openclaw status
-openclaw gateway status
+bash scripts/gateway_stable_start.sh
 ```
 
-### 配置频道
-```bash
-# Telegram
-openclaw channels add --channel telegram --token "YOUR_TOKEN"
+### 3. 小红书要求扫码
 
-# WhatsApp
-openclaw configure  # 选择 channels -> WhatsApp
-```
+基本可以直接判断为 Cookie 失效。更新浏览器 Cookie 后重启对应链路，不要把扫码当常规登录方式。
 
-### 水产市场（手动点名调用）
-```bash
-# 查看已安装资产
-openclawmp list
+### 4. 公众号推送失败
 
-# 查看具体资产（名称含空格时必须加引号）
-openclawmp info "experience/@u-a25e114956065150/Multi Source Tech News Digest"
+优先检查：
 
-# 直接让 agent 按已安装资产产出内容
-openclaw agent --message "按 Multi Source Tech News Digest + Auto-Redbook-Skills 产出过去24小时科技摘要、3个选题、1篇成稿"
-```
+- `.credentials` 是否正确
+- 微信后台 IP 白名单是否包含当前出口 IP
+- `wechat_draft.py` 是否真的返回成功
 
-## 小红书增长官技能（已验证）
-```bash
-# 1. 内容创作 → 生成Markdown文件
-# 2. 渲染卡片
-python3 skills/小红书笔记技能包/scripts/render_xhs.py content.md -t playful-geometric -m separator -o output/
+## 目录说明
 
-# 3. 发布验证
-bash scripts/xiaohongshu_send_setup.sh start --port 18060 --headless true
-python3 scripts/xiaohongshu_send.py check-login --base-url http://127.0.0.1:18060
-python3 scripts/xiaohongshu_send.py validate --payload payload.json
-python3 scripts/xiaohongshu_send.py publish --dry-run --payload payload.json --base-url http://127.0.0.1:18060
-```
+| 路径 | 作用 |
+| --- | --- |
+| `scripts/` | 常用运维、发布、诊断脚本 |
+| `skills/` | 各技能包与子系统 |
+| `drafts/` | 草稿与中间产物 |
+| `MEMORY.md` | 长期记忆 |
+| `.credentials.template` | 凭证模板 |
+| `AGENTS.md` | AI 员工路由入口 |
+| `SKILLS.md` | 技能总路由 |
 
----
+## 已接入的重要能力
 
-## 🔗 相关文档链接（重要！）
+- 公众号选题、成稿、排版、草稿箱推送
+- 小红书图文渲染与发布链路
+- 闲鱼半自动发布链路
+- 产品设计系统三件套
+- HTML 演示文稿生成器
+- AI 投资复盘技能包
+- 企业微信 WeCom 插件
 
-### 核心文档（你每次执行项目前必须核心阅读的文档）
-- [核心养虾文件Token优化指南](openclaw-workspace/核心养虾文件Token优化指南.md) - 核心token优化指南
-- [API_STRATEGY.md](openclaw-workspace/部署与部分app配置/API_STRATEGY.md) - API策略与效能优化
-- [SKILLS.md](openclaw-workspace/SKILLS.md)- 你的各个技能树，解放双手的效率利器，对应各个软件的使用细则提示，请详细遵循
-- [HEARTBEAT.md](openclaw-workspace/HEARTBEAT.md)- 你的风险与安全控制文档，代表权限底线，必须仔细遵循不犯错
-- [AGENTS.md](openclaw-workspace/AGENTS.md)- 你的智能体运行合约与操作标准程序
-- [IDENTITY.md](openclaw-workspace/IDENTITY.md)- 你的员工档案，请记住你的职责，高效完成任务不犯错
-- [TOOLS.md](openclaw-workspace/TOOLS.md)- 你有的权限各个工具的汇总
-- [MEMORY.md](openclaw-workspace/MEMORY.md)- 你的长期记忆学习文件，每天不断进步，学无止境
-- [SOUL.md](openclaw-workspace/SOUL.md)- 你的人类形态灵魂底色，不忘初心，方得始终
+## 一句话建议
 
+第一次使用，别上来就看完全部文档。先跑通：
 
-### 详细文档（你每次执行项目前必须核心阅读的文档）
-- [README.md](../README.md) - 完整使用指南
-- [项目完成总结](../项目完成总结/) - 项目总结和结构以及目前完成情况与流程
-- [部署与部分app配置](../部署与部分app配置/) - 工具配置说明
-- [Token优化指南](openclaw-workspace/Token优化指南.md) - 核心文件的token优化，帮我省钱
+1. `bash scripts/gateway_stable_start.sh`
+2. `openclaw agent --agent main --message "只回OK" --json`
+3. 选一个触发词直接试，比如 `AI简报`、`今日选题` 或 `产品需求`
 
----
-
-## 🎓 学习资源
-
-### 官方资源
-- 官方文档：https://docs.openclaw.ai/
-- GitHub仓库：https://github.com/openclaw/openclaw
-- 问题反馈：https://github.com/openclaw/openclaw/issues
-
-### 社区资源
-- FAQ：https://docs.openclaw.ai/faq
-- 故障排查：https://docs.openclaw.ai/troubleshooting
-- 安全指南：https://docs.openclaw.ai/gateway/security
-
----
-
-## 💡 新人使用技巧
-
-### 技巧1：善用导航文档
-不知道看什么？先看 [NAVIGATION.md](NAVIGATION.md)
-
-### 技巧2：收藏快速参考
-把 [QUICK_REFERENCE.md](QUICK_REFERENCE.md) 加入书签，日常使用时快速查询
-
-### 技巧3：循序渐进
-不要一次看完所有文档，按需学习更高效
-
-### 技巧4：实践为主
-边看文档边实践，效果最好
-
----
-
-## 📊 文档完成度
-
-| 文档               | 状态 | 适合人群 | 阅读时间 |
-| ------------------ | ---- | -------- | -------- |
-| START_HERE.md      | ✅    | 完全新手 | 3分钟    |
-| INDEX.md           | ✅    | 所有用户 | 5分钟    |
-| NAVIGATION.md      | ✅    | 需要导航 | 3分钟    |
-| QUICK_REFERENCE.md | ✅    | 熟练用户 | 1分钟    |
-
----
-
-### 目标
-- 三平台抓取验证：小红书 / 公众号 / X（各6条）
-- 结构化总结写入 Obsidian Vault
-- 生成并推送 3 条小红书草稿态、3 条公众号草稿
-
-### 标准执行顺序（精简版）
-1. 预检：`agent-reach doctor` + 渠道登录态检查  
-2. 抓取：X走 `agent-reach + xreach`，其余走 `x-reader`，小红书走 `xiaohongshu-mcp`  
-3. 汇总：输出结构化 Markdown（含链接、互动数据、爆点）  
-4. 入库：同步到 Obsidian 指定目录  
-5. 发布：小红书先 `validate` + `dry-run`，再发布（可见性建议 `仅自己可见`）  
-6. 公众号：`python3 scripts/wechat_draft.py --file ...` 推送草稿箱  
-
-### 今日关键结论
-- X 抓取主链路已切换：`xreach`（由 Agent Reach 路线承接），不再依赖 x-reader 抓 X  
-- 小红书“已登录但不可用”的常见根因是会话隔离：`x-reader` 与 `xiaohongshu-send` 登录态不共享  
-- 小红书登录已做持久化根治：统一 `COOKIES_PATH`，并把 `/tmp/cookies.json` 固定链接到工作区 cookies，避免会话漂移  
-- 小红书浏览器 profile 已固定到 `skills/xiaohongshu-send/profile`（`rod dir`），重启后优先复用同一会话  
-- 公众号推送报 `40164 invalid ip` 时，先加微信后台 IP 白名单再重试  
-- 先做登录态/环境预检，再抓取与发布，可显著减少卡顿与失败重跑  
-- MCP服务在 `~/xhs_workspace`（无中文路径，避免崩溃）
-- Cookie从浏览器导入（长期有效，无需扫码）
-- 中文路径自动转换（发布时处理）
-- 默认"仅自己可见"（手动审核后公开）
-
-### 小红书快速自检（30秒）
-```bash
-bash scripts/xiaohongshu_send_setup.sh status --port 18060
-python3 scripts/xiaohongshu_send.py check-login --base-url http://127.0.0.1:18060
-```
-
----
-
-
-
-**版本**：1.0.1
-**更新日期**：2026-03-03
-
-🦞 **OpenClaw** - 解放双手，但绝不越过安全底线
+跑通之后，再去看 [AGENTS.md](AGENTS.md)、[SKILLS.md](SKILLS.md) 和 [HEARTBEAT.md](HEARTBEAT.md)。
