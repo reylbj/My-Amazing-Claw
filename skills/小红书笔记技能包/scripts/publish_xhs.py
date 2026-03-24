@@ -90,9 +90,9 @@ def load_payload_file(path: str) -> Dict[str, Any]:
         raw = json.load(handle)
 
     title = raw.get('title') or ''
-    desc = raw.get('desc')
+    desc = raw.get('content')
     if desc is None:
-        desc = raw.get('content') or raw.get('description') or ''
+        desc = raw.get('desc') or raw.get('description') or ''
     images = raw.get('images') or raw.get('image_urls') or []
     tags = raw.get('topics') or raw.get('tags') or []
 

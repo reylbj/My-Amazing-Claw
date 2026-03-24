@@ -127,6 +127,26 @@ bash scripts/xianyu_live_publish.sh --title "AI文案代写｜自动发布实测
 
 ---
 
+## 小红书 XHS
+
+### 当前稳定真发命令
+```bash
+python3 skills/小红书笔记技能包/scripts/publish_xhs.py \
+  --payload /tmp/xhs/payload.json \
+  --browser-mode \
+  --browser-profile-dir ~/xhs_workspace/xiaohongshu-send/profile-persistent \
+  --cookies-path ~/xhs_workspace/xiaohongshu-send/data/cookies.json
+```
+
+### 关键约束
+- `Auto-Redbook-Skills` 目录里旧版 `publish_xhs.py` 默认依赖 `.env` 的 `XHS_COOKIE`，不是当前首选真发入口
+- `cookies.json` 必须是 Playwright cookie 数组格式，不是单个 `{"cookies":"..."}`
+- 首条真实验证优先选清单型；先发仅自己可见；微调优先只改标题/desc，不先动图片
+- 若发现封面元素遮挡、页重复、文案不够活跃：优先改 `v2/render/page_renderer.py` + 定制 `note_plan_tuned.json`，再用新 payload 重发
+- 若只剩正文偏短：继续只改 payload 文案并重发，避免重复动图引入新问题
+
+---
+
 ## What Goes Here
 
 Things like:

@@ -37,9 +37,9 @@ guardian自愈:主`webchat`坏session会自动清索引+稳定重启; 连续`DNS
 ```bash
 # 1.Cookie(每次发布前更新)
 # 浏览器xiaohongshu.com→F12→copy(document.cookie)
-# 写入~/xhs_workspace/xiaohongshu-send/data/cookies.json:{"cookies":"..."}
+# 转成 Playwright cookie 数组后写入 ~/xhs_workspace/xiaohongshu-send/data/cookies.json
 
-# 2.启动MCP
+# 2.启动MCP(仅诊断/兼容)
 pkill -9 -f xiaohongshu-mcp
 cd ~/xhs_workspace/xiaohongshu-send
 COOKIES_PATH=./data/cookies.json ./bin/xiaohongshu-mcp -port :18060 -headless=true -rod "dir=./profile" > logs/mcp.log 2>&1 &
@@ -48,16 +48,15 @@ COOKIES_PATH=./data/cookies.json ./bin/xiaohongshu-mcp -port :18060 -headless=tr
 python3 skills/小红书笔记技能包/scripts/render_xhs.py content.md -o /tmp/xhs -t playful-geometric -m auto-split
 
 # 4.Payload(必须含content)
-# {"title":"...","content":"...","desc":"...","images":[...],"topics":[...],"type":"normal","is_private":false}
+# {"title":"...","content":"...","desc":"...","images":[...],"topics":[...],"type":"normal","is_private":true}
 
-# 5.发布
-# 5.发布(优先技能内可视化浏览器链路)
+# 5.发布(优先稳定浏览器链路)
 python3 skills/小红书笔记技能包/scripts/publish_xhs.py --payload /tmp/xhs/payload.json --browser-mode --browser-profile-dir ~/xhs_workspace/xiaohongshu-send/profile-persistent --cookies-path ~/xhs_workspace/xiaohongshu-send/data/cookies.json
 
 # 旧MCP链路仅保留诊断/兼容
 python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --base-url http://127.0.0.1:18060
 ```
-要点:Cookie主账号;图≤8张;payload含content;默认先发仅自己可见;检查APP创作中心;扫码=Cookie失效;若要求本地可见操作，必须走`publish_xhs.py --browser-mode`
+要点:Cookie主账号;cookies.json 用 Playwright cookie 数组而非 `{\"cookies\":\"...\"}`; 图≤8张; payload 含 content; 首次/微调都先发仅自己可见; 首条真实验证优先选清单型并尽量只改标题/desc不动图片; 若真实效果暴露图遮挡/页重复/不够活跃，先修 `v2/render/page_renderer.py` 和样例 `note_plan` 再重发; 若只剩正文偏短，继续只改 payload 文案并重发，不再动图片; 若要求本地可见操作，必须走 `publish_xhs.py --browser-mode`
 
 ### 咸鱼运营官(`咸鱼运营`/`闲鱼运营`/`闲鱼发布`)
 路径:`skills/xianyu-multi-agent/`
