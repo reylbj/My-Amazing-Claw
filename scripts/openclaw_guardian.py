@@ -57,6 +57,10 @@ GROUP_POLICY_CHANNELS = ("whatsapp", "telegram")
 WECOM_CHANNEL_ID = "wecom"
 WECOM_PLUGIN_ID = "wecom-openclaw-plugin"
 WECOM_PLUGIN_PACKAGE = "@wecom/wecom-openclaw-plugin"
+PLUGIN_ID_ALIASES = {
+    "wecom": "wecom-openclaw-plugin",
+    "whatsapp": "@openclaw/whatsapp",
+}
 RESTART_COOLDOWN_SECONDS = 15 * 60
 MAX_RESTARTS_PER_HOUR = 6
 INCIDENT_LOOKBACK_MINUTES = 180
@@ -984,8 +988,9 @@ def normalize_plugin_allowlist(payload: dict, *, should_enable_wecom: bool) -> b
         if not item:
             changed = True
             continue
-        if item == WECOM_CHANNEL_ID:
-            item = WECOM_PLUGIN_ID
+        alias = PLUGIN_ID_ALIASES.get(item)
+        if alias:
+            item = alias
             changed = True
         if item in seen:
             changed = True
@@ -2100,35 +2105,35 @@ await processForRoute(msg, route, groupHistoryKey);
         }
     }
     normalize_wecom_plugin_config(sample_plugins)
-    assert sample_plugins["plugins"]["allow"] == ["telegram", "wecom-openclaw-plugin", "whatsapp"]
+    assert sample_plugins["plugins"]["allow"] == ["telegram", "wecom-openclaw-plugin", "@openclaw/whatsapp"]
     assert "wecom" not in sample_plugins["plugins"]["entries"]
     assert "wecom-openclaw-plugin" in sample_plugins["plugins"]["entries"]
     assert "wecom" not in sample_plugins["plugins"]["installs"]
     assert "wecom-openclaw-plugin" in sample_plugins["plugins"]["installs"]
     sample_invalid_plugins = {
         "plugins": {
-            "allow": ["telegram", "whatsapp", "wecom-openclaw-plugin"],
-            "deny": ["whatsapp"],
+            "allow": ["telegram", "@openclaw/whatsapp", "wecom-openclaw-plugin"],
+            "deny": ["@openclaw/whatsapp"],
             "entries": {
-                "whatsapp": {"enabled": True},
+                "@openclaw/whatsapp": {"enabled": True},
                 "copilot-proxy": {"enabled": True},
             },
             "installs": {
-                "whatsapp": {"version": "2026.3.22"},
+                "@openclaw/whatsapp": {"version": "2026.3.22"},
                 "wecom-openclaw-plugin": {"version": "1.0.11"},
             },
-            "slots": {"memory": "whatsapp"},
+            "slots": {"memory": "@openclaw/whatsapp"},
         }
     }
     original_invalid_resolver = globals()["resolve_invalid_plugin_ids_via_runtime"]
     try:
-        globals()["resolve_invalid_plugin_ids_via_runtime"] = lambda payload: {"whatsapp"}
+        globals()["resolve_invalid_plugin_ids_via_runtime"] = lambda payload: {"@openclaw/whatsapp"}
         changes = prune_invalid_plugin_references(sample_invalid_plugins)
         assert sample_invalid_plugins["plugins"]["allow"] == ["telegram", "wecom-openclaw-plugin"]
         assert sample_invalid_plugins["plugins"]["deny"] == []
-        assert "whatsapp" not in sample_invalid_plugins["plugins"]["entries"]
+        assert "@openclaw/whatsapp" not in sample_invalid_plugins["plugins"]["entries"]
         assert "copilot-proxy" in sample_invalid_plugins["plugins"]["entries"]
-        assert "whatsapp" not in sample_invalid_plugins["plugins"]["installs"]
+        assert "@openclaw/whatsapp" not in sample_invalid_plugins["plugins"]["installs"]
         assert "memory" not in sample_invalid_plugins["plugins"]["slots"]
         assert set(changes) == {
             "plugins.allow",

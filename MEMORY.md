@@ -53,6 +53,7 @@
 - `skills/coding-agent-loops`已安装，适合长任务、自动重试、持续编码流程。
 - 企业微信(WeCom)已于 2026-03-12 接入成功：官方插件 `@wecom/wecom-openclaw-plugin` 已安装并加载；配置走 `channels.wecom`，当前为 `dmPolicy=open`、`allowFrom=["*"]`、`groupPolicy=open`；已验证可正常收发消息。
 - 2026-03-23 OpenClaw 网关/Weixin 稳态修复：`scripts/openclaw_guardian.py` 现会同时修三层兼容问题：1）恢复缺失的 `dist/control-ui` 资产；2）为宿主 `openclaw/plugin-sdk` 根入口补回旧版导出（如 `resolvePreferredOpenClawTmpDir` / `withFileLock` 等），确保 `npx -y @tencent-weixin/openclaw-weixin-cli@latest install` 在“首次连接”阶段不再因旧 SDK 导出缺失而崩；3）安装后再次重写 `~/.openclaw/extensions/openclaw-weixin` 与 `wecom` 插件源码到新子模块路径。当前验收标准仍是 `bash scripts/gateway_stable_start.sh` + Dashboard `http://127.0.0.1:18789/` 返回 200。
+- 2026-03-24 微信 clawbot 不回的直接根因是 `openclaw-weixin` 曾掉到“configured 但不 running”；修复后又发现 guardian 仍把旧 channel id `whatsapp` 当成插件 ID 参与 `plugins.allow` 自动持久化，导致周期性警告 `plugins.allow: plugin not found: whatsapp`。长期解法：给 `scripts/openclaw_guardian.py` 补 channel→plugin 别名归一化（至少 `wecom -> wecom-openclaw-plugin`、`whatsapp -> @openclaw/whatsapp`），同步到 `~/.openclaw/guardian_runtime/scripts/openclaw_guardian.py`，执行 `python3 scripts/openclaw_guardian.py configure` 后再 `openclaw gateway restart`。本次同时把 `channels.openclaw-weixin` 改为显式配置 `enabled: true` + `baseUrl: https://ilinkai.weixin.qq.com`；最终验收以 `openclaw status --deep` / `openclaw channels status` 三通道 running，且新日志出现 `weixin monitor started`、不再新增 `plugin not found: whatsapp` 为准。
 
 ## 7. 记忆规则
 - 这里只写长期有效的偏好、决策、稳定流程、复发故障解法。
