@@ -129,8 +129,17 @@ bash scripts/xianyu_live_publish.sh --title "AI文案代写｜自动发布实测
 
 ## 小红书 XHS
 
-### 当前稳定真发命令
+### 当前默认生成+发布链路
 ```bash
+# 1) 生成默认走 v2
+python3 skills/Auto-Redbook-Skills/scripts/generate_xhs_v2.py \
+  --topic "主题" \
+  --target-persona "产品经理" \
+  --style high_contrast_viral \
+  -o /tmp/xhs_v2 \
+  --export-png
+
+# 2) 真发走稳定浏览器链路
 python3 skills/小红书笔记技能包/scripts/publish_xhs.py \
   --payload /tmp/xhs/payload.json \
   --browser-mode \
@@ -139,11 +148,13 @@ python3 skills/小红书笔记技能包/scripts/publish_xhs.py \
 ```
 
 ### 关键约束
-- `Auto-Redbook-Skills` 目录里旧版 `publish_xhs.py` 默认依赖 `.env` 的 `XHS_COOKIE`，不是当前首选真发入口
+- `Auto-Redbook-Skills` 目录里旧版 `publish_xhs.py` 默认依赖 `.env` 的 `XHS_COOKIE`，不是当前首选真发入口；生成默认一律走 v2
 - `cookies.json` 必须是 Playwright cookie 数组格式，不是单个 `{"cookies":"..."}`
+- payload 中 `content` 优先作为正文，`desc` 只做摘要/备用
 - 首条真实验证优先选清单型；先发仅自己可见；微调优先只改标题/desc，不先动图片
 - 若发现封面元素遮挡、页重复、文案不够活跃：优先改 `v2/render/page_renderer.py` + 定制 `note_plan_tuned.json`，再用新 payload 重发
 - 若只剩正文偏短：继续只改 payload 文案并重发，避免重复动图引入新问题
+- 默认正文结构采用本次验证通过的丰满版：痛点开头 → 筛选标准 → 典型场景 → 如何开始用 → 互动提问
 
 ---
 

@@ -44,19 +44,20 @@ pkill -9 -f xiaohongshu-mcp
 cd ~/xhs_workspace/xiaohongshu-send
 COOKIES_PATH=./data/cookies.json ./bin/xiaohongshu-mcp -port :18060 -headless=true -rod "dir=./profile" > logs/mcp.log 2>&1 &
 
-# 3.渲染(5-7张图)
-python3 skills/小红书笔记技能包/scripts/render_xhs.py content.md -o /tmp/xhs -t playful-geometric -m auto-split
+# 3.生成(默认走 v2)
+python3 skills/Auto-Redbook-Skills/scripts/generate_xhs_v2.py --topic "主题" --target-persona "产品经理" --style high_contrast_viral -o /tmp/xhs_v2 --export-png
+# 若需定制页文案/避免重复页, 用 note_plan_tuned.json + render_note_plan_tuned.py
 
-# 4.Payload(必须含content)
+# 4.Payload(必须含content; content优先作为正文, desc只做摘要)
 # {"title":"...","content":"...","desc":"...","images":[...],"topics":[...],"type":"normal","is_private":true}
 
-# 5.发布(优先稳定浏览器链路)
+# 5.发布(稳定浏览器链路)
 python3 skills/小红书笔记技能包/scripts/publish_xhs.py --payload /tmp/xhs/payload.json --browser-mode --browser-profile-dir ~/xhs_workspace/xiaohongshu-send/profile-persistent --cookies-path ~/xhs_workspace/xiaohongshu-send/data/cookies.json
 
 # 旧MCP链路仅保留诊断/兼容
 python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --base-url http://127.0.0.1:18060
 ```
-要点:Cookie主账号;cookies.json 用 Playwright cookie 数组而非 `{\"cookies\":\"...\"}`; 图≤8张; payload 含 content; 首次/微调都先发仅自己可见; 首条真实验证优先选清单型并尽量只改标题/desc不动图片; 若真实效果暴露图遮挡/页重复/不够活跃，先修 `v2/render/page_renderer.py` 和样例 `note_plan` 再重发; 若只剩正文偏短，继续只改 payload 文案并重发，不再动图片; 若要求本地可见操作，必须走 `publish_xhs.py --browser-mode`
+要点:默认生成一律走 `Auto-Redbook-Skills` 的 v2 链路; Cookie主账号;cookies.json 用 Playwright cookie 数组而非 `{\"cookies\":\"...\"}`; 图≤8张; payload 含 content 且 `content` 优先作为正文; 首次/微调都先发仅自己可见; 首条真实验证优先选清单型并尽量只改标题/desc不动图片; 若真实效果暴露图遮挡/页重复/不够活跃，先修 `v2/render/page_renderer.py` 和样例 `note_plan` 再重发; 若只剩正文偏短，继续只改 payload 文案并重发，不再动图片; 默认正文写法采用本次验证通过的“痛点→筛选标准→典型场景→如何开始用→互动提问”的丰满结构; 若要求本地可见操作，必须走 `publish_xhs.py --browser-mode`
 
 ### 咸鱼运营官(`咸鱼运营`/`闲鱼运营`/`闲鱼发布`)
 路径:`skills/xianyu-multi-agent/`
