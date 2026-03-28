@@ -97,10 +97,10 @@ python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --ba
 步骤:
 1.生成888-1888字文章(MD)
 2.写入`drafts/YYYY-MM-DD_标题.md`
-3.**执行**:`python3 scripts/wechat_draft.py --file "drafts/YYYY-MM-DD_标题.md" --title "标题" --digest "摘要"`
+3.若需排版/发稿, 固定走旧链路：`skills/wechat-article-formatter/`(默认橙韵风格) → `python3 scripts/wechat_draft.py --file "drafts/YYYY-MM-DD_标题.md" --title "标题" --digest "摘要"`
 4.确认`✅推送成功`后WhatsApp通知Ray:"草稿箱已更新选题:[标题]请登录mp.weixin.qq.com查看"
 
-⚠️严禁:只写文件不执行python3就发"草稿箱已更新"
+⚠️严禁:公众号任务临时切到未验证新 skill；严禁只写文件不执行python3就发"草稿箱已更新"
 
 质量标准:
 标题15-25字/开头场景化数据化切入3秒抓注意力/结构金字塔原理先结论后论证/案例真实可验证有细节有数据/结尾可落地行动建议或引发思考/字数888-1888
@@ -125,13 +125,13 @@ python3 scripts/xiaohongshu_auto_publish.py --payload /tmp/xhs/payload.json --ba
 ## 公众号排版工具(`公众号排版`/`微信文章格式化`)
 路径:`skills/wechat-article-formatter/`
 规则:`SKILL.md`(微信文章排版生成器)
-主题:Claude风格/橙韵风格/蓝色专业/贴纸风格
+主题:固定默认橙韵风格(母版对齐`宠物AI陪伴`)
 流程:Markdown→HTML(橙韵风格)→`scripts/wechat_draft.py`推送草稿箱
 验证:已完成`宠物AI陪伴`文章(1586字橙韵风格推送成功MediaID:d59as12_SarRDV5X0i_Gfm51QE4ZqguqbTjDNklkWauQr06JN30yVsyjO9AfKxW4)
 关键:
-1.橙韵风格必须用table+td替代box-shadow(公众号不支持)
-2.白色卡片仅放hook(2-3句)不重复正文
-3.章节标题用橙色渐变方块+中文序号(一二三四五)
+1.默认母版固定为`宠物AI陪伴`同款: `#fb923c/#ea580c/#d97706` + 渐变头图 + 白色hook卡 + 中文序号章节 + 浅黄引用/表格卡
+2.橙韵风格必须用table+td替代box-shadow(公众号不支持)
+3.白色卡片仅放hook(2-3句)不重复正文
 4.`wechat_draft.py`已修复HTML自动检测(不会二次转换)
 
 ## 水产市场(手动)

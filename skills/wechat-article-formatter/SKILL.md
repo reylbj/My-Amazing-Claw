@@ -12,6 +12,7 @@ description: 将 Markdown 文稿转换为微信公众号兼容的 HTML 格式。
 - **Markdown → 公众号 HTML**: 自动转换标题、列表、引用、表格等元素。
 - **CSS 兼容性引擎**: `div` 转 `table`、`white-space` 预处理、字体显式声明等。
 - **四主题支持**: Claude 风格（简约橙）、橙韵风格（杂志卡片）、蓝色专业风格（商务数据）、贴纸风格（旋转贴纸）。
+- **PageSkill 集成来源**: 已接入 `skills/pageskill/` 作为后续公众号模板扩展来源，但正式入公众号仍统一经过本 skill 的兼容层与发布链路。需要时读取 `references/pageskill-integration.md`。
 - **一键复制**: Clipboard API 输出 HTML 格式，直接粘贴到公众号编辑器并保留样式。
 
 ## 快速开始

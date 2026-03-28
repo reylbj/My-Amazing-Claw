@@ -62,6 +62,25 @@ pip install -r requirements.txt
 
 ---
 
+## 公众号 WeChat OA
+
+### 固定老链路
+```bash
+# 先产出 Markdown 到 drafts/
+python3 scripts/wechat_draft.py --file "drafts/YYYY-MM-DD_标题.md" --title "标题" --digest "摘要"
+```
+
+### 当前约定
+- 公众号排版固定走 `skills/wechat-article-formatter/`，默认橙韵风格
+- 默认视觉母版对齐 `drafts/2026-03-11_宠物AI陪伴.md` 对应已验证样式
+- 色板固定：`#fb923c` / `#ea580c` / `#d97706`
+- 结构固定：渐变头图 → 白色hook卡 → 中文序号章节 → 浅黄引用/表格卡片
+- 推草稿箱固定走 `scripts/wechat_draft.py`
+- 未看到 `✅ 推送成功` 前，不能对外说“草稿箱已更新”
+- 不临时切换到未验收的新 skill 做公众号排版
+
+---
+
 ## 企业微信 WeCom
 
 ### 当前接入方式
